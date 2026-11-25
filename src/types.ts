@@ -23,6 +23,7 @@ export type BossState =
   | 'CariTutup'
   | 'Mengamuk'
   | 'MemeriksaSembunyi'
+  | 'WindupAttack'
   | 'AngerCombat'
   | 'PanicDefeated';
 
@@ -91,4 +92,31 @@ export interface InputState {
   glideHeld: boolean;
   dodgeJustPressed: boolean;
   actionHeld: boolean;
+}
+
+export type UpgradeKey = 'sayap' | 'kaki' | 'refleks' | 'rahang';
+
+export interface UpgradeLevels {
+  sayap: number;
+  kaki: number;
+  refleks: number;
+  rahang: number;
+}
+
+export interface PlayerSaveData {
+  dna: number;
+  bestStars: number;
+  bestMomentum: number;
+  clears: number;
+  upgrades: UpgradeLevels;
+}
+
+export interface ComputedStats {
+  maxStamina: number;
+  staminaRegenMult: number;
+  stealthFactor: number; // < 1 reduces detection range/rate
+  dodgeCooldown: number;
+  dodgeImpulse: number;
+  dodgeIframeDuration: number;
+  sabotageSpeedMult: number; // > 1 speeds up hold interaction
 }

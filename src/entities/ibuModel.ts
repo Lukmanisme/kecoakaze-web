@@ -326,6 +326,15 @@ export class IbuRig {
       return;
     }
 
+    if (bossState === 'WindupAttack') {
+      this.torso.rotation.x = -0.14;
+      this.armRight.rotation.x = -2.35;
+      this.armRight.rotation.z = 0.28;
+      this.armLeft.rotation.x = -1.25;
+      this.head.rotation.set(-0.08, 0, 0);
+      return;
+    }
+
     if (bossState === 'AngerCombat') {
       this.torso.rotation.x = 0.08;
       this.armRight.rotation.x = -0.85 + broomSweepAngle;

@@ -5,6 +5,7 @@ import { IbuBossController } from '../ai/ibuBoss';
 import { SurfaceAlignedCamera } from '../camera/surfaceCamera';
 import { KitchenStageManager } from '../game/stageManager';
 import { SoundEngine } from '../audio/soundEngine';
+import { MAX_UPGRADE_LEVEL, UPGRADE_DEFS } from '../game/progression';
 
 export class HUDController {
   private readonly keys = new Set<string>();
@@ -16,6 +17,10 @@ export class HUDController {
   private mobileMoveX = 0;
   private mobileMoveY = 0;
 
+  private touchMode = false;
+  private isPointerLocked = false;
+  private suppressAutoPauseOnUnlock = false;
+
   private pointerLookId: number | null = null;
   private lastLookX = 0;
   private lastLookY = 0;
@@ -23,6 +28,7 @@ export class HUDController {
 
   private storyUntil = 0;
   private toastUntil = 0;
+  private labReturnTarget: 'start' | 'result' = 'start';
 
   // DOM refs
   private readonly objectiveTitle = document.getElementById('objective-title')!;
@@ -39,6 +45,7 @@ export class HUDController {
   private readonly detectionFill = document.getElementById('detection-fill')!;
   private readonly surfaceStatus = document.getElementById('surface-status')!;
   private readonly staminaFill = document.getElementById('stamina-fill')!;
+  private readonly dnaHudBadge = document.getElementById('dna-hud-badge')!;
   private readonly storyCard = document.getElementById('story-card')!;
   private readonly storyText = document.getElementById('story-text')!;
   private readonly toastBanner = document.getElementById('toast-banner')!;
@@ -47,56 +54,138 @@ export class HUDController {
   private readonly ibuAlertBadge = document.getElementById('ibu-alert-badge')!;
   private readonly ibuDialogue = document.getElementById('ibu-dialogue')!;
 
+  private readonly dangerVignette = document.getElementById('danger-vignette')!;
+  private readonly threatIndicator = document.getElementById('threat-direction-indicator')!;
+  private readonly threatArrow = document.getElementById('threat-arrow')!;
+  private readonly threatWindupFill = document.getElementById('threat-windup-fill')!;
+
+  private readonly pointerLockHint = document.getElementById('pointer-lock-hint')!;
+  private readonly desktopHints = document.getElementById('desktop-hints')!;
+  private readonly desktopActionPrompt = document.getElementById('desktop-action-prompt')!;
+  private readonly desktopActionText = document.getElementById('desktop-action-text')!;
+  private readonly desktopActionFill = document.getElementById('desktop-action-fill')!;
+
+  private readonly joystickZone = document.getElementById('joystick-zone')!;
+  private readonly actionCluster = document.getElementById('action-cluster')!;
   private readonly btnAction = document.getElementById('btn-action')!;
   private readonly btnActionLabel = document.getElementById('btn-action-label')!;
   private readonly actionRing = document.getElementById('action-ring-progress')!;
   private readonly btnMute = document.getElementById('btn-mute')!;
+  private readonly btnTouchToggle = document.getElementById('btn-touch-toggle')!;
+  private readonly btnPauseTouch = document.getElementById('btn-pause-touch')!;
   private readonly btnPause = document.getElementById('btn-pause')!;
+  private readonly lookZone = document.getElementById('touch-look-zone')!;
 
   private readonly startOverlay = document.getElementById('start-overlay')!;
+  private readonly startSaveSummary = document.getElementById('start-save-summary')!;
   private readonly pauseOverlay = document.getElementById('pause-overlay')!;
   private readonly resultOverlay = document.getElementById('result-overlay')!;
+  private readonly resultTotalDna = document.getElementById('result-total-dna')!;
+  private readonly labOverlay = document.getElementById('lab-overlay')!;
+  private readonly labDnaBalance = document.getElementById('lab-dna-balance')!;
+  private readonly labGrid = document.getElementById('lab-grid')!;
   private readonly caughtOverlay = document.getElementById('caught-overlay')!;
   private readonly caughtReason = document.getElementById('caught-reason')!;
   private readonly epilogNote = document.getElementById('epilog-note')!;
 
   private readonly projVec = new THREE.Vector3();
+  private stageRef: KitchenStageManager | null = null;
 
   constructor(
     private readonly cam: SurfaceAlignedCamera,
     private readonly sound: SoundEngine
   ) {
+    this.touchMode = this.detectInitialTouch();
+    this.applyTouchModeUI();
     this.bindInputs();
   }
 
+  private detectInitialTouch(): boolean {
+    const coarse = window.matchMedia?.('(pointer: coarse)').matches ?? false;
+    const hasTouch = navigator.maxTouchPoints > 0 && window.innerWidth <= 1024;
+    return coarse || hasTouch;
+  }
+
+  private setTouchMode(enabled: boolean): void {
+    this.touchMode = enabled;
+    if (enabled && document.pointerLockElement) {
+      this.releasePointerLockSafe();
+    }
+    this.applyTouchModeUI();
+  }
+
+  private applyTouchModeUI(): void {
+    this.joystickZone.classList.toggle('hidden', !this.touchMode);
+    this.actionCluster.classList.toggle('hidden', !this.touchMode);
+    this.desktopHints.classList.toggle('hidden', this.touchMode);
+    this.btnTouchToggle.classList.toggle('active', this.touchMode);
+    this.btnPauseTouch.textContent = `📱 MODE TOUCH: ${this.touchMode ? 'ON' : 'OFF'}`;
+  }
+
+  private tryLockPointer(): void {
+    if (this.touchMode || document.pointerLockElement) return;
+    try {
+      const maybePromise = this.lookZone.requestPointerLock() as unknown as Promise<void> | undefined;
+      if (maybePromise && typeof maybePromise.catch === 'function') {
+        maybePromise.catch(() => {});
+      }
+    } catch {
+      // Browser may block pointer lock in restricted contexts; drag fallback remains active
+    }
+  }
+
+  private releasePointerLockSafe(): void {
+    if (!document.pointerLockElement) return;
+    this.suppressAutoPauseOnUnlock = true;
+    try {
+      document.exitPointerLock();
+    } catch {
+      this.suppressAutoPauseOnUnlock = false;
+    }
+  }
+
   public bindStageActions(stage: KitchenStageManager): void {
+    this.stageRef = stage;
+    this.refreshStartSummary(stage);
+
     document.getElementById('btn-start')!.addEventListener('click', () => {
       this.sound.unlock();
       this.startOverlay.classList.add('hidden');
       stage.isStarted = true;
       stage.resetStage();
+      this.tryLockPointer();
     });
 
-    this.btnPause.addEventListener('click', () => {
+    const togglePause = () => {
       if (!stage.isStarted || stage.isStageCleared) return;
       stage.isPaused = !stage.isPaused;
       this.pauseOverlay.classList.toggle('hidden', !stage.isPaused);
       this.clearInputs();
-    });
+      if (stage.isPaused) {
+        this.releasePointerLockSafe();
+      } else {
+        this.tryLockPointer();
+      }
+    };
+
+    this.btnPause.addEventListener('click', togglePause);
 
     document.getElementById('btn-resume')!.addEventListener('click', () => {
       stage.isPaused = false;
       this.pauseOverlay.classList.add('hidden');
+      this.tryLockPointer();
     });
 
     const restartAll = () => {
       this.pauseOverlay.classList.add('hidden');
       this.resultOverlay.classList.add('hidden');
       this.caughtOverlay.classList.add('hidden');
+      this.labOverlay.classList.add('hidden');
       this.epilogNote.classList.add('hidden');
       stage.isPaused = false;
       stage.resetStage();
       this.clearInputs();
+      this.tryLockPointer();
     };
 
     document.getElementById('btn-pause-restart')!.addEventListener('click', restartAll);
@@ -107,18 +196,76 @@ export class HUDController {
       this.epilogNote.classList.toggle('hidden');
     });
 
+    // Lab Mutasi modal open/close
+    document.getElementById('btn-start-lab')!.addEventListener('click', () => {
+      this.sound.unlock();
+      this.openLab('start', stage);
+    });
+    document.getElementById('btn-result-lab')!.addEventListener('click', () => {
+      this.sound.unlock();
+      this.openLab('result', stage);
+    });
+    document.getElementById('btn-lab-close')!.addEventListener('click', () => {
+      this.labOverlay.classList.add('hidden');
+      if (this.labReturnTarget === 'start') {
+        this.refreshStartSummary(stage);
+        this.startOverlay.classList.remove('hidden');
+      } else {
+        this.resultTotalDna.textContent = `TOTAL DNA TERSIMPAN: ${stage.progression.save.dna}`;
+        this.resultOverlay.classList.remove('hidden');
+      }
+    });
+
+    this.btnTouchToggle.addEventListener('click', () => {
+      this.setTouchMode(!this.touchMode);
+      this.showToast(this.touchMode ? '📱 Mode Touch Diaktifkan' : '🖱 Mode Desktop Aktif');
+    });
+
+    this.btnPauseTouch.addEventListener('click', () => {
+      this.setTouchMode(!this.touchMode);
+    });
+
     this.btnMute.addEventListener('click', () => {
       this.sound.unlock();
       this.sound.setMuted(!this.sound.muted);
       this.btnMute.textContent = this.sound.muted ? '🔇' : '🔊';
     });
 
+    document.addEventListener('pointerlockchange', () => {
+      this.isPointerLocked = document.pointerLockElement === this.lookZone;
+      this.cam.setPointerLocked(this.isPointerLocked);
+
+      if (!this.isPointerLocked) {
+        if (this.suppressAutoPauseOnUnlock) {
+          this.suppressAutoPauseOnUnlock = false;
+          return;
+        }
+        // ESC exited pointer lock while actively playing -> open Pause menu
+        const noModalOpen =
+          this.startOverlay.classList.contains('hidden') &&
+          this.resultOverlay.classList.contains('hidden') &&
+          this.caughtOverlay.classList.contains('hidden') &&
+          this.labOverlay.classList.contains('hidden');
+
+        if (stage.isStarted && !stage.isPaused && !stage.isStageCleared && noModalOpen) {
+          stage.isPaused = true;
+          this.pauseOverlay.classList.remove('hidden');
+          this.clearInputs();
+        }
+      }
+    });
+
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Escape' || e.code === 'KeyP') {
-        if (stage.isStarted && !stage.isStageCleared && this.caughtOverlay.classList.contains('hidden')) {
-          stage.isPaused = !stage.isPaused;
-          this.pauseOverlay.classList.toggle('hidden', !stage.isPaused);
-          this.clearInputs();
+        const noModalOpen =
+          this.startOverlay.classList.contains('hidden') &&
+          this.resultOverlay.classList.contains('hidden') &&
+          this.caughtOverlay.classList.contains('hidden') &&
+          this.labOverlay.classList.contains('hidden');
+
+        if (stage.isStarted && !stage.isStageCleared && noModalOpen) {
+          if (e.code === 'Escape' && this.isPointerLocked) return; // pointerlockchange will pause
+          togglePause();
         }
       }
       if (e.code === 'KeyM') {
@@ -127,6 +274,77 @@ export class HUDController {
         this.btnMute.textContent = this.sound.muted ? '🔇' : '🔊';
       }
     });
+  }
+
+  private refreshStartSummary(stage: KitchenStageManager): void {
+    const { dna, bestStars } = stage.progression.save;
+    const starsStr = [1, 2, 3].map((i) => (i <= bestStars ? '★' : '☆')).join(' ');
+    this.startSaveSummary.textContent = `MUTATION DNA: ${dna} · REKOR: ${starsStr}`;
+  }
+
+  private openLab(from: 'start' | 'result', stage: KitchenStageManager): void {
+    this.labReturnTarget = from;
+    this.startOverlay.classList.add('hidden');
+    this.resultOverlay.classList.add('hidden');
+    this.renderLab(stage);
+    this.labOverlay.classList.remove('hidden');
+  }
+
+  private renderLab(stage: KitchenStageManager): void {
+    const save = stage.progression.save;
+    this.labDnaBalance.textContent = `MUTATION DNA: ${save.dna}`;
+    this.labGrid.innerHTML = '';
+
+    for (const def of UPGRADE_DEFS) {
+      const lvl = save.upgrades[def.key];
+      const cost = stage.progression.getNextCost(def.key);
+
+      const card = document.createElement('div');
+      card.className = 'lab-item';
+
+      const head = document.createElement('div');
+      head.className = 'lab-item-head';
+      const title = document.createElement('div');
+      title.className = 'lab-item-title';
+      title.textContent = def.title;
+
+      const pips = document.createElement('div');
+      pips.className = 'lab-pips';
+      for (let i = 0; i < MAX_UPGRADE_LEVEL; i++) {
+        const pip = document.createElement('span');
+        pip.className = i < lvl ? 'lab-pip filled' : 'lab-pip';
+        pips.appendChild(pip);
+      }
+      head.append(title, pips);
+
+      const desc = document.createElement('div');
+      desc.className = 'lab-item-desc';
+      desc.textContent = def.desc;
+
+      const bonus = document.createElement('div');
+      bonus.className = 'lab-item-bonus';
+      bonus.textContent = def.bonusText(lvl);
+
+      const btn = document.createElement('button');
+      btn.className = 'lab-buy-btn';
+      if (cost === null) {
+        btn.textContent = 'LEVEL MAKSIMAL';
+        btn.disabled = true;
+      } else {
+        btn.textContent = `UPGRADE Lv.${lvl + 1} (${cost} DNA)`;
+        btn.disabled = save.dna < cost;
+        btn.addEventListener('click', () => {
+          if (stage.progression.buyUpgrade(def.key)) {
+            stage.applyUpgrades();
+            this.sound.playStarUnlock();
+            this.renderLab(stage);
+          }
+        });
+      }
+
+      card.append(head, desc, bonus, btn);
+      this.labGrid.appendChild(card);
+    }
   }
 
   public showStory(text: string, duration: number): void {
@@ -143,15 +361,23 @@ export class HUDController {
 
   public showCaught(reason: string): void {
     this.clearInputs();
+    this.releasePointerLockSafe();
     this.caughtReason.textContent = `${reason} Semua progres stage di-reset ke awal.`;
     this.caughtOverlay.classList.remove('hidden');
   }
 
-  public showStageResult(stars: number, finalMomentum: number, dnaReward: number): void {
+  public showStageResult(
+    stars: number,
+    finalMomentum: number,
+    dnaEarned: number,
+    totalDna: number
+  ): void {
     this.clearInputs();
+    this.releasePointerLockSafe();
     document.getElementById('result-momentum')!.textContent =
       `MOMENTUM TEROR AKHIR: ${Math.round(finalMomentum)}%`;
-    document.getElementById('result-dna')!.textContent = `+${dnaReward} MUTATION DNA`;
+    document.getElementById('result-dna')!.textContent = `+${dnaEarned} MUTATION DNA`;
+    this.resultTotalDna.textContent = `TOTAL DNA TERSIMPAN: ${totalDna}`;
     for (let i = 1; i <= 3; i++) {
       document.getElementById(`res-star-${i}`)!.classList.toggle('active', i <= stars);
     }
@@ -195,7 +421,6 @@ export class HUDController {
     koko: KokoController,
     ibu: IbuBossController
   ): void {
-    // 1. Objective & Hint
     const target = stage.getCurrentObjectiveProp();
     const discoveredCount = [0, 1, 2].filter((i) => stage.stars[i]).length;
 
@@ -220,7 +445,6 @@ export class HUDController {
         : hints[idx];
     }
 
-    // 2. Hiding badge
     if (stage.activeHidingSpot) {
       this.hidingBadge.classList.remove('hidden');
       const risky = stage.activeHidingSpot.safety === 'Risky';
@@ -232,7 +456,6 @@ export class HUDController {
       this.hidingBadge.classList.add('hidden');
     }
 
-    // 3. Momentum & Stars
     const pct = Math.round(stage.gauge);
     this.momentumPct.textContent = `${pct}%`;
     this.momentumFill.style.width = `${pct}%`;
@@ -240,7 +463,6 @@ export class HUDController {
       this.starEls[i].classList.toggle('unlocked', stage.stars[i]);
     }
 
-    // 4. Threat Status & Surface
     const det = Math.round(ibu.detection);
     this.detectionFill.style.width = `${det}%`;
     let statusText = 'IBU SIBUK / JAGA JARAK';
@@ -258,6 +480,10 @@ export class HUDController {
       case 'MemeriksaSembunyi':
         statusText = 'IBU MENCARI / TETAP SEMBUNYI';
         color = '#ffbf52';
+        break;
+      case 'WindupAttack':
+        statusText = '⚠ ANCAMAN! SIAP ELAK [Q]!';
+        color = '#ff4433';
         break;
       case 'AngerCombat':
       case 'ShockedFreeze':
@@ -280,25 +506,64 @@ export class HUDController {
     if (koko.isInUpdraft) surf += ' · UPDRAFT!';
     this.surfaceStatus.textContent = surf;
 
-    // 5. Stamina
     this.staminaFill.style.width = `${Math.round((koko.stamina / koko.maxStamina) * 100)}%`;
+    this.dnaHudBadge.textContent = `${stage.progression.save.dna} DNA`;
 
-    // 6. Contextual Action Button + Radial Progress
+    // Pointer lock hint (desktop when unlocked during play)
+    const showLockHint =
+      !this.touchMode &&
+      !this.isPointerLocked &&
+      stage.isStarted &&
+      !stage.isPaused &&
+      !stage.isStageCleared;
+    this.pointerLockHint.classList.toggle('hidden', !showLockHint);
+
+    // Contextual Sabotage Prompt (Adaptive: Touch Button vs Desktop Prompt)
     if (stage.nearbyProp && !stage.nearbyProp.isRuined) {
-      this.btnAction.classList.remove('hidden');
-      this.btnActionLabel.textContent = stage.nearbyProp.actionVerb;
       const prog = Math.min(
         1,
         stage.nearbyProp.currentProgress / stage.nearbyProp.requiredHoldDuration
       );
-      const circ = 175.9;
-      this.actionRing.style.strokeDashoffset = `${circ * (1 - prog)}`;
+      if (this.touchMode) {
+        this.btnAction.classList.remove('hidden');
+        this.btnActionLabel.textContent = stage.nearbyProp.actionVerb;
+        const circ = 175.9;
+        this.actionRing.style.strokeDashoffset = `${circ * (1 - prog)}`;
+        this.desktopActionPrompt.classList.add('hidden');
+      } else {
+        this.btnAction.classList.add('hidden');
+        this.desktopActionPrompt.classList.remove('hidden');
+        this.desktopActionText.textContent = `Tahan [E / F] ${stage.nearbyProp.actionVerb} — ${stage.nearbyProp.targetName}`;
+        this.desktopActionFill.style.width = `${Math.round(prog * 100)}%`;
+      }
     } else {
       this.btnAction.classList.add('hidden');
       this.actionRing.style.strokeDashoffset = '175.9';
+      this.desktopActionPrompt.classList.add('hidden');
     }
 
-    // 7. Story & Toast fade
+    // Windup Danger Vignette & Directional Arrow
+    if (ibu.isWindingUp && !stage.isPaused && !stage.isStageCleared) {
+      this.dangerVignette.classList.remove('hidden');
+      this.threatIndicator.classList.remove('hidden');
+      this.threatWindupFill.style.width = `${Math.round(ibu.windupProgress * 100)}%`;
+
+      const camFwd = this.cam.getForward(new THREE.Vector3());
+      const camRight = new THREE.Vector3().crossVectors(camFwd, new THREE.Vector3(0, 1, 0)).normalize();
+      const toIbu = ibu.rig.root.position.clone().sub(koko.position);
+      toIbu.y = 0;
+      if (toIbu.lengthSq() > 0.001) {
+        toIbu.normalize();
+        const flatFwd = new THREE.Vector3(camFwd.x, 0, camFwd.z).normalize();
+        const flatRight = new THREE.Vector3(camRight.x, 0, camRight.z).normalize();
+        const angle = Math.atan2(toIbu.dot(flatRight), toIbu.dot(flatFwd));
+        this.threatArrow.style.transform = `rotate(${THREE.MathUtils.radToDeg(angle)}deg)`;
+      }
+    } else {
+      this.dangerVignette.classList.add('hidden');
+      this.threatIndicator.classList.add('hidden');
+    }
+
     if (time > this.storyUntil) {
       this.storyCard.classList.add('faded');
     }
@@ -306,7 +571,6 @@ export class HUDController {
       this.toastBanner.classList.add('hidden');
     }
 
-    // 8. World-Projected Target Marker & Ibu Overhead Bubble
     this.updateWorldMarker(target && !target.isRuined ? target : null);
     this.updateIbuBubble(ibu);
   }
@@ -358,6 +622,7 @@ export class HUDController {
 
     if (
       ibu.bossState === 'AngerCombat' ||
+      ibu.bossState === 'WindupAttack' ||
       ibu.bossState === 'ShockedFreeze' ||
       ibu.bossState === 'Mengamuk'
     ) {
@@ -405,10 +670,30 @@ export class HUDController {
 
     window.addEventListener('blur', () => this.clearInputs());
 
-    // Camera Look Drag / Swipe
-    const lookZone = document.getElementById('touch-look-zone')!;
-    lookZone.addEventListener('pointerdown', (e) => {
+    // Auto-enable touch controls if user actually touches screen
+    window.addEventListener(
+      'touchstart',
+      () => {
+        if (!this.touchMode) {
+          this.setTouchMode(true);
+        }
+      },
+      { passive: true }
+    );
+
+    // Pointer Lock Mouse Look + Drag Fallback
+    this.lookZone.addEventListener('pointerdown', (e) => {
       this.sound.unlock();
+      if (
+        e.pointerType === 'mouse' &&
+        !this.touchMode &&
+        !this.isPointerLocked &&
+        this.stageRef?.isStarted &&
+        !this.stageRef?.isPaused &&
+        !this.stageRef?.isStageCleared
+      ) {
+        this.tryLockPointer();
+      }
       if (this.pointerLookId !== null) return;
       this.pointerLookId = e.pointerId;
       this.lastLookX = e.clientX;
@@ -416,7 +701,14 @@ export class HUDController {
       this.cam.onSwipeStart();
     });
 
+    document.addEventListener('mousemove', (e) => {
+      if (!this.isPointerLocked) return;
+      if (this.stageRef?.isPaused || !this.stageRef?.isStarted) return;
+      this.cam.addSwipeDelta(e.movementX, e.movementY);
+    });
+
     window.addEventListener('pointermove', (e) => {
+      if (this.isPointerLocked) return;
       if (e.pointerId === this.pointerLookId) {
         const dx = e.clientX - this.lastLookX;
         const dy = e.clientY - this.lastLookY;
@@ -436,12 +728,11 @@ export class HUDController {
     window.addEventListener('pointercancel', endLook);
 
     // Virtual Joystick
-    const joyZone = document.getElementById('joystick-zone')!;
     const joyKnob = document.getElementById('joystick-knob')!;
     const maxRadius = 46;
 
     const updateJoy = (clientX: number, clientY: number) => {
-      const rect = joyZone.getBoundingClientRect();
+      const rect = this.joystickZone.getBoundingClientRect();
       const cx = rect.left + rect.width * 0.5;
       const cy = rect.top + rect.height * 0.5;
       let dx = clientX - cx;
@@ -456,15 +747,15 @@ export class HUDController {
       this.mobileMoveY = -dy / maxRadius;
     };
 
-    joyZone.addEventListener('pointerdown', (e) => {
+    this.joystickZone.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
       this.sound.unlock();
       this.joyPointerId = e.pointerId;
-      joyZone.setPointerCapture(e.pointerId);
+      this.joystickZone.setPointerCapture(e.pointerId);
       updateJoy(e.clientX, e.clientY);
     });
 
-    joyZone.addEventListener('pointermove', (e) => {
+    this.joystickZone.addEventListener('pointermove', (e) => {
       if (e.pointerId !== this.joyPointerId) return;
       updateJoy(e.clientX, e.clientY);
     });
@@ -476,10 +767,9 @@ export class HUDController {
       this.mobileMoveY = 0;
       joyKnob.style.transform = 'translate(-50%, -50%)';
     };
-    joyZone.addEventListener('pointerup', resetJoy);
-    joyZone.addEventListener('pointercancel', resetJoy);
+    this.joystickZone.addEventListener('pointerup', resetJoy);
+    this.joystickZone.addEventListener('pointercancel', resetJoy);
 
-    // Mobile Touch Action Buttons
     const bindHoldBtn = (
       id: string,
       onStart: () => void,

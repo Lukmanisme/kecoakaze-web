@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   AABBZone,
+  ComputedStats,
   InputState,
   KokoState,
   ROOM_D,
@@ -17,14 +18,20 @@ export class KokoController {
   public readonly velocity = new THREE.Vector3();
   public readonly quaternion = new THREE.Quaternion();
   public surfaceNormal = new THREE.Vector3(0, 1, 0);
+  private targetSurfaceNormal = new THREE.Vector3(0, 1, 0);
   public isGrounded = true;
   public isOnSoapyFloor = false;
   public isInUpdraft = false;
 
   public stamina = 100;
-  public readonly maxStamina = 100;
+  public maxStamina = 100;
   public isInvincible = false;
   public stageInvincible = false;
+
+  private staminaRegenMult = 1;
+  private dodgeCooldownDuration = 0.85;
+  private dodgeImpulse = 11;
+  private dodgeIframeDuration = 0.38;
 
   private flightTimer = 0;
   private iframeTimer = 0;
@@ -48,10 +55,20 @@ export class KokoController {
     private readonly sound: SoundEngine
   ) {}
 
+  public applyStats(stats: ComputedStats): void {
+    this.maxStamina = stats.maxStamina;
+    this.staminaRegenMult = stats.staminaRegenMult;
+    this.dodgeCooldownDuration = stats.dodgeCooldown;
+    this.dodgeImpulse = stats.dodgeImpulse;
+    this.dodgeIframeDuration = stats.dodgeIframeDuration;
+    this.stamina = Math.min(this.maxStamina, Math.max(this.stamina, this.maxStamina));
+  }
+
   public spawnAt(pos: THREE.Vector3): void {
     this.position.copy(pos);
     this.velocity.set(0, 0, 0);
     this.surfaceNormal.set(0, 1, 0);
+    this.targetSurfaceNormal.set(0, 1, 0);
     this.quaternion.identity();
     this.state = 'Crawling';
     this.isGrounded = true;
@@ -66,6 +83,11 @@ export class KokoController {
 
   public get effectiveInvincible(): boolean {
     return this.isInvincible || this.stageInvincible;
+  }
+
+  public get dodgeCooldownRatio(): number {
+    if (this.dodgeCooldown <= 0) return 0;
+    return Math.min(1, this.dodgeCooldown / this.dodgeCooldownDuration);
   }
 
   public getSurfaceLabel(): string {
@@ -89,7 +111,7 @@ export class KokoController {
       this.iframeTimer -= dt;
       if (this.iframeTimer <= 0) this.isInvincible = false;
     }
-    if (this.dodgeCooldown > 0) this.dodgeCooldown -= dt;
+    if (this.dodgeCooldown > 0) this.dodgeCooldown = Math.max(0, this.dodgeCooldown - dt);
 
     if (this.state === 'Stunned') {
       this.stunTimer -= dt;
@@ -103,19 +125,20 @@ export class KokoController {
       if (this.stunTimer <= 0) {
         this.state = 'Crawling';
         this.surfaceNormal.set(0, 1, 0);
+        this.targetSurfaceNormal.set(0, 1, 0);
       }
       this.rig.updateAnimation(dt, time, this.state, 0);
       this.syncRigTransform();
       return;
     }
 
-    // Dodge action
-    if (input.dodgeJustPressed && this.dodgeCooldown <= 0 && this.stamina >= 15) {
-      this.performDodge(input);
+    // Dodge action (works while crawling or flying)
+    if (input.dodgeJustPressed && this.dodgeCooldown <= 0 && this.stamina >= 12) {
+      this.performDodge(input, cameraForward);
     }
 
     if (this.state === 'Crawling') {
-      this.stamina = Math.min(this.maxStamina, this.stamina + 30 * dt);
+      this.stamina = Math.min(this.maxStamina, this.stamina + 30 * this.staminaRegenMult * dt);
 
       if (input.flyJustPressed && this.stamina >= 6) {
         this.takeoff();
@@ -147,22 +170,37 @@ export class KokoController {
     this.sound.playTakeoff();
   }
 
-  private performDodge(input: InputState): void {
-    this.stamina = Math.max(0, this.stamina - 15);
+  private performDodge(input: InputState, cameraForward: THREE.Vector3): void {
+    this.stamina = Math.max(0, this.stamina - 12);
     this.isInvincible = true;
-    this.iframeTimer = 0.38;
-    this.dodgeCooldown = 0.85;
+    this.iframeTimer = this.dodgeIframeDuration;
+    this.dodgeCooldown = this.dodgeCooldownDuration;
 
-    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.quaternion);
-    const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(this.quaternion);
-    const dir =
-      Math.abs(input.moveX) > 0.1
-        ? right.multiplyScalar(Math.sign(input.moveX))
-        : input.moveY < -0.1
-          ? forward.multiplyScalar(-1)
-          : right;
+    const camFwd = cameraForward.clone().projectOnPlane(this.surfaceNormal);
+    if (camFwd.lengthSq() < 0.001) {
+      camFwd.set(0, 0, 1).applyQuaternion(this.quaternion).projectOnPlane(this.surfaceNormal);
+    }
+    camFwd.normalize();
+    const camRight = new THREE.Vector3().crossVectors(camFwd, this.surfaceNormal).normalize();
 
-    this.velocity.addScaledVector(dir.normalize(), 11);
+    let dodgeDir = new THREE.Vector3();
+    if (Math.abs(input.moveX) > 0.1 || Math.abs(input.moveY) > 0.1) {
+      dodgeDir.addScaledVector(camRight, input.moveX).addScaledVector(camFwd, input.moveY);
+    } else {
+      dodgeDir.copy(camRight);
+    }
+    if (dodgeDir.lengthSq() < 0.001) dodgeDir.copy(camRight);
+    dodgeDir.normalize();
+
+    this.velocity.addScaledVector(dodgeDir, this.dodgeImpulse);
+    // Quick positional burst while avoiding wall penetration
+    const burstHit = this.raycastWalkables(
+      this.position.clone().addScaledVector(this.surfaceNormal, 0.15),
+      dodgeDir,
+      this.dodgeImpulse * 0.14
+    );
+    const safeBurst = burstHit ? Math.max(0, burstHit.distance - 0.25) : this.dodgeImpulse * 0.11;
+    this.position.addScaledVector(dodgeDir, safeBurst);
     this.sound.playDodge();
   }
 
@@ -172,7 +210,6 @@ export class KokoController {
     cameraForward: THREE.Vector3,
     cameraUp: THREE.Vector3
   ): void {
-    // 5-Point Surface Probe
     const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(this.quaternion);
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.quaternion);
     const span = 0.24;
@@ -194,49 +231,13 @@ export class KokoController {
       const rayOrigin = orig.clone().addScaledVector(this.surfaceNormal, this.probeOffset);
       const hit = this.raycastWalkables(rayOrigin, downDir, this.probeDist + this.probeOffset);
       if (hit) {
-        const n = this.getWorldNormal(hit);
-        avgNormal.add(n);
+        avgNormal.add(this.getWorldNormal(hit));
         hitCount++;
         if (hit.distance < closestDist) closestDist = hit.distance;
       }
     }
 
-    if (hitCount > 0) {
-      this.isGrounded = true;
-      avgNormal.normalize();
-      this.surfaceNormal.lerp(avgNormal, Math.min(1, dt * 14)).normalize();
-
-      // Snap cleanly to surface distance
-      const surfaceOffset = closestDist - this.probeOffset;
-      if (Math.abs(surfaceOffset) < 0.35) {
-        this.position.addScaledVector(this.surfaceNormal, -(surfaceOffset - 0.02));
-      }
-    } else {
-      this.isGrounded = false;
-      this.surfaceNormal.lerp(new THREE.Vector3(0, 1, 0), Math.min(1, dt * 6)).normalize();
-    }
-
-    if (!this.isGrounded) {
-      this.velocity.y -= 18 * dt;
-      this.position.addScaledVector(this.velocity, dt);
-      this.sound.setCrawlActive(false);
-
-      // Try catching floor/surface during fall
-      const fallHit = this.raycastWalkables(
-        this.position.clone().add(new THREE.Vector3(0, 0.2, 0)),
-        new THREE.Vector3(0, -1, 0),
-        0.45
-      );
-      if (fallHit) {
-        this.isGrounded = true;
-        this.surfaceNormal.copy(this.getWorldNormal(fallHit));
-        this.position.copy(fallHit.point).addScaledVector(this.surfaceNormal, 0.02);
-        this.velocity.set(0, 0, 0);
-      }
-      return;
-    }
-
-    // Camera-relative basis projected onto current surface plane
+    // Camera-relative movement direction on current surface
     let camDir = cameraForward.clone();
     const facingSurface = camDir.dot(this.surfaceNormal);
     const parallelThreshold = Math.abs(this.surfaceNormal.y) < 0.5 ? 0.5 : 0.85;
@@ -258,28 +259,94 @@ export class KokoController {
 
     if (moveDir.lengthSq() > 0.001) {
       moveDir.normalize();
+    }
 
-      // Check forward wall/corner transition to climb onto walls, counters, fridge, ceiling
-      const probeStart = this.position.clone().addScaledVector(this.surfaceNormal, 0.24);
-      const wallReach = 0.45 + this.walkSpeed * dt;
-      const wallHit = this.raycastWalkables(probeStart, moveDir, wallReach);
-      if (wallHit) {
-        const wallNormal = this.getWorldNormal(wallHit);
-        if (wallNormal.dot(this.surfaceNormal) < 0.72 && wallNormal.dot(moveDir) < -0.35) {
-          const rot = new THREE.Quaternion().setFromUnitVectors(this.surfaceNormal, wallNormal);
-          this.surfaceNormal.copy(wallNormal);
-          moveDir.applyQuaternion(rot).normalize();
-          this.position.copy(wallHit.point).addScaledVector(this.surfaceNormal, 0.03);
+    // Convex outer-edge wrap-around probe: catches table/counter lips so Koko wraps smoothly onto vertical sides
+    if (hitCount === 0 && this.isGrounded && moveDir.lengthSq() > 0.001) {
+      const wrapOrigin = this.position
+        .clone()
+        .addScaledVector(moveDir, 0.14)
+        .addScaledVector(this.surfaceNormal, -0.22);
+      const wrapBackDir = moveDir.clone().negate();
+      const wrapHit = this.raycastWalkables(wrapOrigin, wrapBackDir, 0.48);
+      if (wrapHit) {
+        const wrapNormal = this.getWorldNormal(wrapHit);
+        if (wrapNormal.dot(this.surfaceNormal) < 0.75) {
+          this.targetSurfaceNormal.copy(wrapNormal);
+          this.surfaceNormal.lerp(this.targetSurfaceNormal, Math.min(1, dt * 18)).normalize();
+          this.position.lerp(
+            wrapHit.point.clone().addScaledVector(wrapNormal, 0.025),
+            Math.min(1, dt * 16)
+          );
+          hitCount = 1;
+          closestDist = this.probeOffset + 0.02;
         }
       }
     }
 
-    // Check Soapy Floor Hazard
+    if (hitCount > 0) {
+      this.isGrounded = true;
+      if (avgNormal.lengthSq() > 0.001) {
+        this.targetSurfaceNormal.copy(avgNormal.normalize());
+      }
+      this.surfaceNormal.lerp(this.targetSurfaceNormal, Math.min(1, dt * 14)).normalize();
+
+      const surfaceOffset = closestDist - this.probeOffset;
+      if (Math.abs(surfaceOffset) < 0.35) {
+        this.position.addScaledVector(this.surfaceNormal, -(surfaceOffset - 0.02));
+      }
+    } else {
+      this.isGrounded = false;
+      this.targetSurfaceNormal.set(0, 1, 0);
+      this.surfaceNormal.lerp(this.targetSurfaceNormal, Math.min(1, dt * 6)).normalize();
+    }
+
+    if (!this.isGrounded) {
+      this.velocity.y -= 18 * dt;
+      this.position.addScaledVector(this.velocity, dt);
+      this.sound.setCrawlActive(false);
+
+      const fallHit = this.raycastWalkables(
+        this.position.clone().add(new THREE.Vector3(0, 0.2, 0)),
+        new THREE.Vector3(0, -1, 0),
+        0.48
+      );
+      if (fallHit) {
+        this.isGrounded = true;
+        const n = this.getWorldNormal(fallHit);
+        this.surfaceNormal.copy(n);
+        this.targetSurfaceNormal.copy(n);
+        this.position.copy(fallHit.point).addScaledVector(this.surfaceNormal, 0.02);
+        this.velocity.set(0, 0, 0);
+      }
+      return;
+    }
+
+    // Concave inner 90-degree wall/cabinet climb transition
+    if (inputLen > 0.05 && moveDir.lengthSq() > 0.001) {
+      const probeStart = this.position.clone().addScaledVector(this.surfaceNormal, 0.24);
+      const wallReach = 0.48 + this.walkSpeed * dt;
+      const wallHit = this.raycastWalkables(probeStart, moveDir, wallReach);
+      if (wallHit) {
+        const wallNormal = this.getWorldNormal(wallHit);
+        if (wallNormal.dot(this.surfaceNormal) < 0.72 && wallNormal.dot(moveDir) < -0.3) {
+          const rot = new THREE.Quaternion().setFromUnitVectors(this.surfaceNormal, wallNormal);
+          this.targetSurfaceNormal.copy(wallNormal);
+          this.surfaceNormal.lerp(wallNormal, Math.min(1, dt * 18)).normalize();
+          moveDir.applyQuaternion(rot).normalize();
+          this.position.lerp(
+            wallHit.point.clone().addScaledVector(wallNormal, 0.03),
+            Math.min(1, dt * 18)
+          );
+        }
+      }
+    }
+
+    // Soapy Floor Hazard check
     this.isOnSoapyFloor = this.containsPoint(this.soapyZone, this.position);
 
     const targetVel = moveDir.clone().multiplyScalar(this.walkSpeed * inputLen);
     if (this.isOnSoapyFloor) {
-      // Slippery soap slide: preserve momentum + boost speed
       const slipBoost = targetVel.multiplyScalar(1.45);
       this.velocity.lerp(slipBoost, Math.min(1, dt * 3.0));
     } else {
@@ -288,21 +355,23 @@ export class KokoController {
 
     this.position.addScaledVector(this.velocity, dt);
 
-    // Align quaternion Up to surfaceNormal, and Forward to moveDir
-    const currentUp = new THREE.Vector3(0, 1, 0).applyQuaternion(this.quaternion);
-    const alignQ = new THREE.Quaternion().setFromUnitVectors(currentUp, this.surfaceNormal);
-    const targetQ = alignQ.multiply(this.quaternion.clone());
-    this.quaternion.slerp(targetQ, Math.min(1, dt * 14));
+    // Stable orthonormal basis alignment (avoids gimbal flips on vertical walls & inverted ceilings)
+    const upVec = this.surfaceNormal.clone().normalize();
+    let fwdVec =
+      inputLen > 0.05 && moveDir.lengthSq() > 0.001
+        ? moveDir.clone().projectOnPlane(upVec)
+        : forward.clone().projectOnPlane(upVec);
 
-    if (inputLen > 0.05 && moveDir.lengthSq() > 0.001) {
-      const lookM = new THREE.Matrix4().lookAt(
-        moveDir,
-        new THREE.Vector3(0, 0, 0),
-        this.surfaceNormal
-      );
-      const lookQ = new THREE.Quaternion().setFromRotationMatrix(lookM);
-      this.quaternion.slerp(lookQ, Math.min(1, dt * 10));
+    if (fwdVec.lengthSq() < 0.001) {
+      fwdVec = new THREE.Vector3(0, 0, 1).projectOnPlane(upVec);
+      if (fwdVec.lengthSq() < 0.001) fwdVec.set(1, 0, 0);
     }
+    fwdVec.normalize();
+
+    const rightVec = new THREE.Vector3().crossVectors(upVec, fwdVec).normalize();
+    const basis = new THREE.Matrix4().makeBasis(rightVec, upVec, fwdVec);
+    const targetQ = new THREE.Quaternion().setFromRotationMatrix(basis);
+    this.quaternion.slerp(targetQ, Math.min(1, dt * 12));
 
     this.sound.setFlightBuzz(false, 0);
     this.sound.setCrawlActive(inputLen > 0.08 && this.isGrounded);
@@ -323,12 +392,11 @@ export class KokoController {
         gliding = true;
       }
     } else {
-      this.stamina = Math.min(this.maxStamina, this.stamina + 16 * dt);
+      this.stamina = Math.min(this.maxStamina, this.stamina + 16 * this.staminaRegenMult * dt);
     }
 
     this.state = gliding && !ascending ? 'Gliding' : 'Flying';
 
-    // Camera-relative horizontal flight steering (intuitive for both desktop & mobile)
     const camFlatFwd = new THREE.Vector3(cameraForward.x, 0, cameraForward.z);
     if (camFlatFwd.lengthSq() < 0.001) camFlatFwd.set(0, 0, 1);
     camFlatFwd.normalize();
@@ -355,7 +423,6 @@ export class KokoController {
         ? -this.hoverGravity * 0.55
         : -this.hoverGravity;
 
-    // Thermal Updraft above Kompor Gas
     this.isInUpdraft = this.containsPoint(this.updraftZone, this.position);
     if (this.isInUpdraft) {
       verticalVel += 8.5;
@@ -367,7 +434,6 @@ export class KokoController {
     const desiredVel = new THREE.Vector3(desiredHorizVel.x, verticalVel, desiredHorizVel.z);
     this.velocity.lerp(desiredVel, Math.min(1, dt * 6.5));
 
-    // Prevent flying straight through walls/furniture
     const speed = this.velocity.length();
     if (speed > 0.05) {
       const moveDir = this.velocity.clone().normalize();
@@ -375,11 +441,9 @@ export class KokoController {
       if (hit) {
         const normal = this.getWorldNormal(hit);
         if (!ascending && this.flightTimer > 0.3) {
-          // Automatic landing on contact when not holding fly!
           this.landOnSurface(hit.point, normal);
           return;
         } else {
-          // Slide along wall/ceiling while holding fly
           const dot = this.velocity.dot(normal);
           if (dot < 0) this.velocity.addScaledVector(normal, -dot);
         }
@@ -388,7 +452,6 @@ export class KokoController {
 
     this.position.addScaledVector(this.velocity, dt);
 
-    // Check ground beneath for auto-landing when not holding fly
     if (!ascending && this.flightTimer > 0.35) {
       const groundHit = this.raycastWalkables(
         this.position.clone().add(new THREE.Vector3(0, 0.15, 0)),
@@ -401,7 +464,6 @@ export class KokoController {
       }
     }
 
-    // Smooth flight orientation with pitch/bank
     const pitch = input.moveY * 0.24;
     const roll = -input.moveX * 0.32;
     const euler = new THREE.Euler(pitch, this.currentYawEuler, roll, 'YXZ');
@@ -416,6 +478,7 @@ export class KokoController {
     this.state = 'Crawling';
     this.isGrounded = true;
     this.surfaceNormal.copy(normal).normalize();
+    this.targetSurfaceNormal.copy(this.surfaceNormal);
     this.position.copy(point).addScaledVector(this.surfaceNormal, 0.02);
     this.velocity.set(0, 0, 0);
     this.sound.setFlightBuzz(false, 0);

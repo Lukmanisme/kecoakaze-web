@@ -9,6 +9,8 @@ import { IbuBossController } from './ai/ibuBoss';
 import { KitchenStageManager } from './game/stageManager';
 import { SoundEngine } from './audio/soundEngine';
 import { HUDController } from './ui/hudController';
+import { ProgressionManager } from './game/progression';
+import { ParticleFXManager } from './effects/particleFx';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -23,6 +25,8 @@ const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerH
 
 const level = buildKitchenLevel(scene);
 const sound = new SoundEngine();
+const progression = new ProgressionManager();
+const particles = new ParticleFXManager(scene);
 
 const kokoRig = new KokoRig();
 scene.add(kokoRig.root);
@@ -53,14 +57,23 @@ const ibu = new IbuBossController(
   (reason) => stage.handleKokoHit(reason)
 );
 
-stage = new KitchenStageManager(level, koko, ibu, surfaceCam, sound, {
-  onStoryMessage: (text, dur) => hud.showStory(text, dur),
-  onToast: (text) => hud.showToast(text),
-  onStarUnlocked: () => {},
-  onStageClear: (stars, finalMomentum, dnaReward) =>
-    hud.showStageResult(stars, finalMomentum, dnaReward),
-  onKokoCaught: (reason) => hud.showCaught(reason),
-});
+stage = new KitchenStageManager(
+  level,
+  koko,
+  ibu,
+  surfaceCam,
+  sound,
+  progression,
+  particles,
+  {
+    onStoryMessage: (text, dur) => hud.showStory(text, dur),
+    onToast: (text) => hud.showToast(text),
+    onStarUnlocked: () => {},
+    onStageClear: (stars, finalMomentum, dnaEarned, totalDna) =>
+      hud.showStageResult(stars, finalMomentum, dnaEarned, totalDna),
+    onKokoCaught: (reason) => hud.showCaught(reason),
+  }
+);
 
 hud.bindStageActions(stage);
 stage.resetStage();
@@ -124,6 +137,7 @@ function tick(): void {
 
     sound.tick(dt);
   } else {
+    particles.update(dt);
     surfaceCam.update(
       dt,
       koko.position,

@@ -1,19 +1,22 @@
 import * as THREE from 'three';
-import { BossState } from '../types';
+import { BossState, ROOM_D, ROOM_H, ROOM_W, WORLD_SCALE as S } from '../types';
 
 export class SurfaceAlignedCamera {
   private smoothedSurfaceUp = new THREE.Vector3(0, 1, 0);
   private smoothedForward = new THREE.Vector3(0, 0, 1);
   private orbitYaw = 0;
-  private orbitPitch = 0.22; // slightly elevated shoulder view by default
+  private orbitPitch = 0.22;
   private isSwiping = false;
+  private isPointerLocked = false;
   private recenterTimer = 0;
   private lastTargetPos = new THREE.Vector3();
+  private currentFollowDist = 2.45;
 
   private shakeTimer = 0;
   private shakeIntensity = 0;
   private readonly defaultFov = 62;
   private readonly raycaster = new THREE.Raycaster();
+  private readonly sphereRadius = 0.24;
 
   constructor(
     public readonly camera: THREE.PerspectiveCamera,
@@ -31,7 +34,13 @@ export class SurfaceAlignedCamera {
     this.isSwiping = false;
     this.recenterTimer = 0;
     this.lastTargetPos.copy(targetPos);
+    this.currentFollowDist = 2.45;
     this.shakeTimer = 0;
+  }
+
+  public setPointerLocked(locked: boolean): void {
+    this.isPointerLocked = locked;
+    if (locked) this.recenterTimer = 0;
   }
 
   public onSwipeStart(): void {
@@ -42,11 +51,12 @@ export class SurfaceAlignedCamera {
   public addSwipeDelta(dx: number, dy: number): void {
     this.isSwiping = true;
     this.recenterTimer = 0;
-    this.orbitYaw -= dx * 0.0065;
+    const sens = this.isPointerLocked ? 0.0036 : 0.0065;
+    this.orbitYaw -= dx * sens;
     this.orbitPitch = THREE.MathUtils.clamp(
-      this.orbitPitch + dy * 0.0055,
-      -0.38,
-      1.12
+      this.orbitPitch + dy * sens * 0.85,
+      -0.42,
+      1.15
     );
   }
 
@@ -56,8 +66,8 @@ export class SurfaceAlignedCamera {
   }
 
   public triggerShake(intensity: number, duration: number): void {
-    this.shakeIntensity = intensity;
-    this.shakeTimer = duration;
+    this.shakeIntensity = Math.max(this.shakeIntensity, intensity);
+    this.shakeTimer = Math.max(this.shakeTimer, duration);
   }
 
   public getForward(out = new THREE.Vector3()): THREE.Vector3 {
@@ -75,15 +85,17 @@ export class SurfaceAlignedCamera {
     surfaceNormal: THREE.Vector3,
     bossState: BossState
   ): void {
-    // Dynamic combat FOV
     const targetFov =
-      bossState === 'AngerCombat' || bossState === 'Mengamuk' ? 72 : this.defaultFov;
+      bossState === 'AngerCombat' ||
+      bossState === 'WindupAttack' ||
+      bossState === 'Mengamuk'
+        ? 72
+        : this.defaultFov;
     if (Math.abs(this.camera.fov - targetFov) > 0.05) {
       this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, Math.min(1, dt * 4));
       this.camera.updateProjectionMatrix();
     }
 
-    // Smooth Up vector toward surface normal
     this.smoothedSurfaceUp
       .lerp(surfaceNormal, Math.min(1, dt / 0.32))
       .normalize();
@@ -96,10 +108,9 @@ export class SurfaceAlignedCamera {
     forwardOnPlane.normalize();
     this.smoothedForward.lerp(forwardOnPlane, Math.min(1, dt / 0.3)).normalize();
 
-    // Auto-recenter gently while moving
     const moved = targetPos.distanceToSquared(this.lastTargetPos) > 0.0002;
     this.lastTargetPos.copy(targetPos);
-    if (!this.isSwiping && moved) {
+    if (!this.isSwiping && !this.isPointerLocked && moved) {
       this.recenterTimer += dt;
       if (this.recenterTimer >= 1.8) {
         this.orbitYaw = THREE.MathUtils.lerp(this.orbitYaw, 0, Math.min(1, dt * 1.8));
@@ -109,7 +120,6 @@ export class SurfaceAlignedCamera {
       this.recenterTimer = 0;
     }
 
-    // Compute camera orbit direction
     const yawQ = new THREE.Quaternion().setFromAxisAngle(this.smoothedSurfaceUp, this.orbitYaw);
     const lookDir = this.smoothedForward.clone().applyQuaternion(yawQ).normalize();
     const camRight = new THREE.Vector3()
@@ -118,34 +128,56 @@ export class SurfaceAlignedCamera {
     const pitchQ = new THREE.Quaternion().setFromAxisAngle(camRight, -this.orbitPitch);
     const backDir = lookDir.clone().negate().applyQuaternion(pitchQ).normalize();
 
-    const followDist = 2.45;
+    const maxFollowDist = 2.45;
     const pivot = targetPos.clone().addScaledVector(this.smoothedSurfaceUp, 0.42);
-    let desiredPos = pivot.clone().addScaledVector(backDir, followDist);
 
-    // Anti-clipping raycast against kitchen walls & furniture
-    const rayDir = desiredPos.clone().sub(pivot);
-    const rayLen = rayDir.length();
-    if (rayLen > 0.01) {
-      rayDir.divideScalar(rayLen);
-      this.raycaster.set(pivot, rayDir);
+    // Multi-probe sphere-cast anti-clipping (center + 4 perimeter offsets)
+    let safeDist = maxFollowDist;
+    const probeOffsets = [
+      new THREE.Vector3(0, 0, 0),
+      camRight.clone().multiplyScalar(this.sphereRadius),
+      camRight.clone().multiplyScalar(-this.sphereRadius),
+      this.smoothedSurfaceUp.clone().multiplyScalar(this.sphereRadius),
+      this.smoothedSurfaceUp.clone().multiplyScalar(-this.sphereRadius * 0.6),
+    ];
+
+    for (const off of probeOffsets) {
+      const origin = pivot.clone().add(off);
+      this.raycaster.set(origin, backDir);
       this.raycaster.near = 0;
-      this.raycaster.far = rayLen;
+      this.raycaster.far = maxFollowDist + 0.1;
       const hits = this.raycaster.intersectObjects(this.obstacles, false);
       if (hits.length > 0) {
-        const safeDist = Math.max(0.4, hits[0].distance - 0.14);
-        desiredPos = pivot.clone().addScaledVector(rayDir, safeDist);
+        const candidate = Math.max(0.38, hits[0].distance - this.sphereRadius);
+        if (candidate < safeDist) safeDist = candidate;
       }
     }
 
-    // Camera Shake
+    // Pull in fast when blocked, relax out smoothly when clear
+    const distRate = safeDist < this.currentFollowDist ? 24 : 8;
+    this.currentFollowDist = THREE.MathUtils.lerp(
+      this.currentFollowDist,
+      safeDist,
+      Math.min(1, dt * distRate)
+    );
+
+    const desiredPos = pivot.clone().addScaledVector(backDir, this.currentFollowDist);
+
+    // Keep camera strictly inside room walls/floor/ceiling
+    const pad = 0.2;
+    desiredPos.x = THREE.MathUtils.clamp(desiredPos.x, -ROOM_W * 0.5 * S + pad, ROOM_W * 0.5 * S - pad);
+    desiredPos.z = THREE.MathUtils.clamp(desiredPos.z, -ROOM_D * 0.5 * S + pad, ROOM_D * 0.5 * S - pad);
+    desiredPos.y = THREE.MathUtils.clamp(desiredPos.y, 0.16, ROOM_H * S - pad);
+
     if (this.shakeTimer > 0) {
       this.shakeTimer -= dt;
       desiredPos.x += (Math.random() - 0.5) * this.shakeIntensity;
       desiredPos.y += (Math.random() - 0.5) * this.shakeIntensity;
       desiredPos.z += (Math.random() - 0.5) * this.shakeIntensity;
+      if (this.shakeTimer <= 0) this.shakeIntensity = 0;
     }
 
-    this.camera.position.lerp(desiredPos, Math.min(1, dt * 14));
+    this.camera.position.lerp(desiredPos, Math.min(1, dt * 18));
     this.camera.up.copy(this.smoothedSurfaceUp);
     this.camera.lookAt(pivot.clone().addScaledVector(lookDir, 0.8));
   }

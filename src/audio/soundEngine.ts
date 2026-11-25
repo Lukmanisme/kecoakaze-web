@@ -149,6 +149,16 @@ export class SoundEngine {
     this.playTone(520, 220, 0.18, 'sine', 0.15);
   }
 
+  public playWindupWarning(): void {
+    this.playTone(580, 880, 0.14, 'sawtooth', 0.15);
+    setTimeout(() => this.playTone(680, 1020, 0.16, 'sawtooth', 0.16), 170);
+  }
+
+  public playHighRiskBonus(): void {
+    this.playTone(587, 880, 0.12, 'triangle', 0.2);
+    setTimeout(() => this.playTone(880, 1175, 0.18, 'triangle', 0.22), 90);
+  }
+
   public playStageClear(): void {
     const notes = [523, 659, 784, 1046];
     notes.forEach((n, i) => {

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   BossState,
+  ComputedStats,
   HidingSpot,
   IbuHabit,
   InteractiveProp,
@@ -28,7 +29,14 @@ export class IbuBossController {
   public detection = 0; // 0..100
   public isArmed = false;
   public activeDialogue = 'Supnya udah mendidih harum, tinggal goreng tempe sebentar.';
-  public currentTrial: 0 | 1 | 2 = 0; // 0: Bahan, 1: Panci, 2: MejaMakan
+  public currentTrial: 0 | 1 | 2 = 0;
+
+  // Telegraphing state (1.0s windup before broom/sandal)
+  public pendingAttack: 'broom' | 'sandal' | null = null;
+  public windupTimer = 0;
+  public readonly windupDuration = 1.0;
+
+  private stealthFactor = 1.0;
 
   private currentStation: KitchenStation = 'MejaDapur';
   private targetStation: KitchenStation = 'MejaDapur';
@@ -49,7 +57,6 @@ export class IbuBossController {
   private targetHidingSpot: HidingSpot | null = null;
   private inspectTimer = 0;
 
-  // Combat
   private combatTimer = 0;
   private broomSweepTimer = 0;
   private isBroomSweeping = false;
@@ -63,7 +70,7 @@ export class IbuBossController {
   private readonly viewDistBase = 6.2;
   private readonly viewAngleDeg = 110;
   private readonly hearingRadiusBase = 3.0;
-  private readonly detectionRate = 48; // % per second
+  private readonly detectionRate = 48;
 
   private static readonly COOKING_LINES = [
     'Hmm... kurang gurih dikit kuahnya, tambahin bumbu dikit lagi.',
@@ -91,7 +98,6 @@ export class IbuBossController {
     private readonly onPropDiscovered: (prop: InteractiveProp) => void,
     private readonly onKokoHit: (reason: string) => void
   ) {
-    // Vision Cone Mesh on floor
     const viewWorld = this.viewDistBase * this.rig.worldScale * 0.42;
     const coneAngle = THREE.MathUtils.degToRad(this.viewAngleDeg);
     const coneGeo = new THREE.CircleGeometry(viewWorld, 24, Math.PI * 0.5 - coneAngle * 0.5, coneAngle);
@@ -108,13 +114,12 @@ export class IbuBossController {
     this.visionConeMesh.raycast = () => {};
     this.rig.root.add(this.visionConeMesh);
 
-    // Broom Sweep AoE Telegraph ring
     const sweepGeo = new THREE.RingGeometry(0.4, 2.8 * this.rig.worldScale * 0.45, 24, 1, -Math.PI * 0.5, Math.PI);
     sweepGeo.rotateX(-Math.PI / 2);
     const sweepMat = new THREE.MeshBasicMaterial({
-      color: 0xff5544,
+      color: 0xff4433,
       transparent: true,
-      opacity: 0.42,
+      opacity: 0.45,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
@@ -125,6 +130,19 @@ export class IbuBossController {
     this.rig.root.add(this.broomTelegraphMesh);
 
     this.reset();
+  }
+
+  public applyStats(stats: ComputedStats): void {
+    this.stealthFactor = stats.stealthFactor;
+    this.visionConeMesh.scale.setScalar(this.stealthFactor);
+  }
+
+  public get isWindingUp(): boolean {
+    return this.bossState === 'WindupAttack';
+  }
+
+  public get windupProgress(): number {
+    return Math.min(1, this.windupTimer / this.windupDuration);
   }
 
   public reset(): void {
@@ -155,6 +173,8 @@ export class IbuBossController {
     this.targetHidingSpot = null;
     this.inspectTimer = 0;
     this.combatTimer = 0;
+    this.pendingAttack = null;
+    this.windupTimer = 0;
     this.isBroomSweeping = false;
     this.broomTelegraphMesh.visible = false;
 
@@ -180,6 +200,10 @@ export class IbuBossController {
       case 'ShockedFreeze':
         this.rig.setExpression('Shocked');
         this.sound.playIbuGasp();
+        break;
+      case 'WindupAttack':
+        this.rig.setExpression('AngryCombat');
+        this.sound.playWindupWarning();
         break;
       case 'CariSapu':
       case 'AngerCombat':
@@ -295,6 +319,10 @@ export class IbuBossController {
         break;
       }
 
+      case 'WindupAttack':
+        this.updateWindupAttack(dt, time, kokoPos, activeHidingSpot);
+        break;
+
       case 'AngerCombat':
         this.updateCombat(dt, kokoPos, isKokoInvincible, activeHidingSpot);
         break;
@@ -310,7 +338,9 @@ export class IbuBossController {
     this.rig.updateAnimation(
       dt,
       time,
-      this.isMoving || this.bossState === 'CariSapu' || (this.bossState === 'AngerCombat' && !this.isBroomSweeping),
+      this.isMoving ||
+        this.bossState === 'CariSapu' ||
+        (this.bossState === 'AngerCombat' && !this.isBroomSweeping),
       this.bossState,
       this.habit,
       sweepAngle
@@ -446,9 +476,14 @@ export class IbuBossController {
     isKokoFlying: boolean,
     activeHidingSpot: HidingSpot | null
   ): void {
-    if (this.bossState === 'AngerCombat' || this.bossState === 'MemeriksaSembunyi') return;
+    if (
+      this.bossState === 'AngerCombat' ||
+      this.bossState === 'WindupAttack' ||
+      this.bossState === 'MemeriksaSembunyi'
+    ) {
+      return;
+    }
 
-    // Safe hiding spot masks Koko unless Ibu is directly staring right inside
     if (activeHidingSpot && activeHidingSpot.safety === 'Safe') {
       this.detection = Math.max(0, this.detection - this.detectionRate * 0.65 * dt);
       if (this.detection <= 5 && this.bossState === 'SuspiciousAlert') {
@@ -457,19 +492,19 @@ export class IbuBossController {
       return;
     }
 
-    let effDist = this.viewDistBase * this.rig.worldScale * 0.45;
+    let effDist = this.viewDistBase * this.rig.worldScale * 0.45 * this.stealthFactor;
     let effAngle = this.viewAngleDeg;
-    let rateMult = 1.0;
+    let rateMult = this.stealthFactor;
 
     if (this.bossState === 'RoutineIdle') {
       if (this.habit === 'CookingTaste') {
         effDist *= 0.65;
         effAngle *= 0.6;
-        rateMult = 0.6;
+        rateMult *= 0.6;
       } else if (this.habit === 'WipingCounter') {
         effDist *= 0.75;
         effAngle *= 0.75;
-        rateMult = 0.75;
+        rateMult *= 0.75;
       }
     }
 
@@ -491,7 +526,7 @@ export class IbuBossController {
       }
     }
 
-    const hearRadius = this.hearingRadiusBase * this.rig.worldScale * 0.45;
+    const hearRadius = this.hearingRadiusBase * this.rig.worldScale * 0.45 * this.stealthFactor;
     const canHear = isKokoFlying && dist <= hearRadius;
 
     if (canSee || canHear) {
@@ -524,6 +559,51 @@ export class IbuBossController {
     }
   }
 
+  private updateWindupAttack(
+    dt: number,
+    time: number,
+    kokoPos: THREE.Vector3,
+    activeHidingSpot: HidingSpot | null
+  ): void {
+    if (activeHidingSpot) {
+      this.pendingAttack = null;
+      this.windupTimer = 0;
+      this.broomTelegraphMesh.visible = false;
+      this.targetHidingSpot = activeHidingSpot;
+      this.inspectTimer = 0;
+      this.setBossState('MemeriksaSembunyi', 'Mana tuh kecoak nyelip di mana dia?!');
+      return;
+    }
+
+    this.faceToward(kokoPos, dt * 8);
+    this.windupTimer += dt;
+
+    if (this.pendingAttack === 'broom') {
+      this.broomTelegraphMesh.visible = true;
+      const mat = this.broomTelegraphMesh.material as THREE.MeshBasicMaterial;
+      mat.opacity = 0.25 + Math.abs(Math.sin(time * 14)) * 0.45;
+    }
+
+    if (this.windupTimer >= this.windupDuration) {
+      const atk = this.pendingAttack;
+      this.pendingAttack = null;
+      this.windupTimer = 0;
+      this.bossState = 'AngerCombat';
+
+      if (atk === 'broom') {
+        this.isBroomSweeping = true;
+        this.broomSweepTimer = 0;
+        this.broomHitDealt = false;
+        this.broomTelegraphMesh.visible = true;
+        this.activeDialogue = 'Jangan deket-deket meja gue!!';
+        this.sound.playBroomSweep();
+      } else {
+        this.broomTelegraphMesh.visible = false;
+        this.throwSandal(kokoPos);
+      }
+    }
+  }
+
   private updateCombat(
     dt: number,
     kokoPos: THREE.Vector3,
@@ -541,7 +621,7 @@ export class IbuBossController {
 
     if (this.isBroomSweeping) {
       this.broomSweepTimer += dt;
-      if (this.broomSweepTimer >= 0.42 && !this.broomHitDealt) {
+      if (this.broomSweepTimer >= 0.35 && !this.broomHitDealt) {
         this.broomHitDealt = true;
         const dist = this.rig.root.position.distanceTo(kokoPos);
         if (dist <= 3.0 * this.rig.worldScale * 0.45 && kokoPos.y < 1.3 * S && !isKokoInvincible) {
@@ -549,7 +629,7 @@ export class IbuBossController {
           return;
         }
       }
-      if (this.broomSweepTimer >= 0.9) {
+      if (this.broomSweepTimer >= 0.85) {
         this.isBroomSweeping = false;
         this.broomTelegraphMesh.visible = false;
       }
@@ -565,19 +645,15 @@ export class IbuBossController {
     }
 
     this.combatTimer += dt;
-    if (this.combatTimer >= 2.2) {
+    if (this.combatTimer >= 1.65) {
       this.combatTimer = 0;
-
-      if (distToKoko <= meleeRange && kokoPos.y < 1.2 * S) {
-        this.isBroomSweeping = true;
-        this.broomSweepTimer = 0;
-        this.broomHitDealt = false;
-        this.broomTelegraphMesh.visible = true;
-        this.activeDialogue = 'Jangan deket-deket meja gue!!';
-        this.sound.playBroomSweep();
-      } else {
-        this.throwSandal(kokoPos);
-      }
+      this.pendingAttack = distToKoko <= meleeRange && kokoPos.y < 1.2 * S ? 'broom' : 'sandal';
+      this.windupTimer = 0;
+      const line =
+        this.pendingAttack === 'broom'
+          ? 'AWAS LU! RASAIN SAPU LIDI!!'
+          : 'AWAS LU! SIAP-SIAP SANDAL SWALLOW!!';
+      this.setBossState('WindupAttack', line);
     }
   }
 
@@ -655,7 +731,7 @@ export class IbuBossController {
       startPos,
       targetPos: kokoPos.clone(),
       elapsed: 0,
-      duration: 0.95,
+      duration: 0.9,
     });
   }
 
@@ -686,7 +762,11 @@ export class IbuBossController {
 
   private updateVisionConeVisual(): void {
     const mat = this.visionConeMesh.material as THREE.MeshBasicMaterial;
-    if (this.bossState === 'AngerCombat' || this.detection > 75) {
+    if (
+      this.bossState === 'AngerCombat' ||
+      this.bossState === 'WindupAttack' ||
+      this.detection > 75
+    ) {
       mat.color.setHex(0xff5544);
       mat.opacity = 0.25;
     } else if (this.detection > 25 || this.bossState === 'SuspiciousAlert') {

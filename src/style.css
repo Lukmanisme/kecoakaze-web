@@ -40,6 +40,71 @@ body,
   display: none !important;
 }
 
+/* Danger Vignette & Windup Directional Indicator */
+.danger-vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 8;
+  background: radial-gradient(circle at center, transparent 48%, rgba(255, 58, 42, 0.56) 100%);
+  animation: dangerPulse 0.35s ease-in-out infinite alternate;
+}
+
+@keyframes dangerPulse {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.threat-direction-indicator {
+  position: fixed;
+  top: 122px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 16;
+  pointer-events: none;
+  background: rgba(110, 18, 16, 0.92);
+  border: 2px solid #ff6e5c;
+  border-radius: 14px;
+  padding: 8px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  box-shadow: 0 8px 24px rgba(255, 55, 40, 0.45);
+}
+
+.threat-arrow {
+  font-size: 22px;
+  line-height: 1;
+  color: #ffbf52;
+  transition: transform 0.08s linear;
+}
+
+.threat-warning-text {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: #fff;
+}
+
+.threat-windup-track {
+  width: 160px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  overflow: hidden;
+}
+
+.threat-windup-fill {
+  height: 100%;
+  width: 0%;
+  background: #ffbf52;
+}
+
 /* World Overlays */
 #world-overlays {
   position: fixed;
@@ -286,24 +351,74 @@ body,
 }
 
 .icon-btn {
-  width: 42px;
-  height: 42px;
+  width: 40px;
+  height: 40px;
   border-radius: 12px;
   border: 2px solid rgba(250, 240, 214, 0.25);
   background: var(--ink);
   color: var(--cream);
-  font-size: 16px;
+  font-size: 15px;
   cursor: pointer;
 }
 
-.icon-btn:hover {
+.icon-btn:hover,
+.icon-btn.active {
   border-color: var(--amber);
+}
+
+/* Pointer Lock Hint & Desktop Action Prompt */
+.pointer-lock-hint {
+  position: absolute;
+  top: 104px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 5px 14px;
+  border-radius: 999px;
+  background: rgba(14, 26, 36, 0.78);
+  border: 1px solid rgba(250, 240, 214, 0.22);
+  font-size: 11px;
+  color: rgba(250, 240, 214, 0.9);
+}
+
+.pointer-lock-hint b {
+  color: var(--amber);
+}
+
+.desktop-action-prompt {
+  position: absolute;
+  bottom: 138px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  min-width: 240px;
+  text-align: center;
+  border-color: var(--amber);
+}
+
+.desktop-action-text {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--amber);
+  margin-bottom: 6px;
+}
+
+.desktop-action-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  overflow: hidden;
+}
+
+.desktop-action-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--amber), var(--mint));
 }
 
 /* Story Radio Card */
 .story-card {
   position: absolute;
-  bottom: 72px;
+  bottom: 64px;
   left: 50%;
   transform: translateX(-50%);
   width: min(560px, 86vw);
@@ -325,7 +440,7 @@ body,
 /* Stamina Pill */
 .stamina-pill {
   position: absolute;
-  bottom: 18px;
+  bottom: 16px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -344,7 +459,7 @@ body,
 }
 
 .stamina-track {
-  width: 120px;
+  width: 115px;
   height: 8px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.14);
@@ -355,6 +470,14 @@ body,
   height: 100%;
   width: 100%;
   background: linear-gradient(90deg, var(--amber), var(--mint));
+}
+
+.dna-hud-badge {
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--amber);
+  border-left: 1px solid rgba(250, 240, 214, 0.22);
+  padding-left: 8px;
 }
 
 /* Desktop Hints */
@@ -504,18 +627,11 @@ body,
   stroke-linecap: round;
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .joystick-zone {
-    opacity: 0.35;
-  }
-  .joystick-zone:hover {
-    opacity: 0.85;
-  }
-}
-
 @media (max-width: 760px) {
-  .desktop-hints {
-    display: none;
+  .desktop-hints,
+  .pointer-lock-hint,
+  .desktop-action-prompt {
+    display: none !important;
   }
   .objective-card {
     width: 46vw;
@@ -538,7 +654,7 @@ body,
 /* Toast */
 .toast-banner {
   position: absolute;
-  top: 108px;
+  top: 138px;
   left: 50%;
   transform: translateX(-50%);
   background: var(--amber);
@@ -554,24 +670,42 @@ body,
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(8, 16, 22, 0.68);
+  background: rgba(8, 16, 22, 0.72);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 18px;
   z-index: 30;
 }
 
 .modal-card {
-  width: min(500px, 94vw);
+  width: min(520px, 94vw);
+  max-height: 92vh;
+  overflow-y: auto;
   padding: 22px 24px;
   text-align: center;
+}
+
+.lab-card {
+  width: min(680px, 95vw);
 }
 
 .modal-title {
   margin: 4px 0 10px;
   font-size: 24px;
   color: var(--cream);
+}
+
+.save-summary-pill {
+  display: inline-block;
+  margin-bottom: 12px;
+  padding: 5px 14px;
+  border-radius: 999px;
+  background: rgba(255, 191, 82, 0.14);
+  border: 1px solid rgba(255, 191, 82, 0.45);
+  color: var(--amber);
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .modal-desc {
@@ -619,7 +753,7 @@ body,
   font-size: 18px;
   font-weight: 900;
   color: var(--amber);
-  margin-bottom: 16px;
+  margin-bottom: 6px;
 }
 
 .modal-actions {
@@ -627,6 +761,7 @@ body,
   justify-content: center;
   gap: 10px;
   flex-wrap: wrap;
+  margin-top: 12px;
 }
 
 .primary-btn,
@@ -660,4 +795,102 @@ body,
   font-size: 12px;
   line-height: 1.45;
   color: var(--cream);
+}
+
+/* Lab Mutasi Grid */
+.lab-dna-balance {
+  display: inline-block;
+  margin-bottom: 14px;
+  padding: 6px 16px;
+  border-radius: 999px;
+  background: rgba(255, 191, 82, 0.18);
+  border: 1px solid var(--amber);
+  color: var(--amber);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.lab-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  text-align: left;
+  margin-bottom: 6px;
+}
+
+@media (max-width: 600px) {
+  .lab-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.lab-item {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(250, 240, 214, 0.18);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.lab-item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+
+.lab-item-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--cream);
+}
+
+.lab-pips {
+  display: flex;
+  gap: 4px;
+}
+
+.lab-pip {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(250, 240, 214, 0.2);
+}
+
+.lab-pip.filled {
+  background: var(--mint);
+  box-shadow: 0 0 6px rgba(89, 224, 186, 0.7);
+}
+
+.lab-item-desc {
+  font-size: 11px;
+  line-height: 1.35;
+  color: rgba(250, 240, 214, 0.78);
+}
+
+.lab-item-bonus {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--mint);
+}
+
+.lab-buy-btn {
+  border: none;
+  border-radius: 9px;
+  padding: 8px 10px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  background: var(--amber);
+  color: var(--ink-solid);
+}
+
+.lab-buy-btn:disabled {
+  background: rgba(250, 240, 214, 0.14);
+  color: rgba(250, 240, 214, 0.45);
+  cursor: not-allowed;
 }

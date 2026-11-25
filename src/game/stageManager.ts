@@ -1,16 +1,23 @@
 import * as THREE from 'three';
-import { HidingSpot, InteractiveProp } from '../types';
+import { HidingSpot, InteractiveProp, WORLD_SCALE as S } from '../types';
 import { KitchenLevelData } from '../world/kitchenLevel';
 import { KokoController } from '../physics/kokoPhysics';
 import { IbuBossController } from '../ai/ibuBoss';
 import { SurfaceAlignedCamera } from '../camera/surfaceCamera';
 import { SoundEngine } from '../audio/soundEngine';
+import { ProgressionManager } from './progression';
+import { ParticleFXManager } from '../effects/particleFx';
 
 export interface StageCallbacks {
   onStoryMessage: (text: string, duration: number) => void;
   onToast: (text: string) => void;
   onStarUnlocked: (starIdx: number) => void;
-  onStageClear: (stars: number, finalMomentum: number, dnaReward: number) => void;
+  onStageClear: (
+    stars: number,
+    finalMomentum: number,
+    dnaReward: number,
+    totalDna: number
+  ) => void;
   onKokoCaught: (reason: string) => void;
 }
 
@@ -26,6 +33,8 @@ export class KitchenStageManager {
   public activeHidingSpot: HidingSpot | null = null;
   public nearbyProp: InteractiveProp | null = null;
 
+  private sabotageSpeedMult = 1;
+  private runBonusDna = 0;
   private lastActionTime = 0;
   private finaleTimer = 0;
   private readonly finaleDuration = 3.5;
@@ -38,19 +47,33 @@ export class KitchenStageManager {
     private readonly ibu: IbuBossController,
     private readonly cam: SurfaceAlignedCamera,
     private readonly sound: SoundEngine,
+    public readonly progression: ProgressionManager,
+    private readonly particles: ParticleFXManager,
     private readonly callbacks: StageCallbacks
-  ) {}
+  ) {
+    this.applyUpgrades();
+  }
+
+  public applyUpgrades(): void {
+    const stats = this.progression.getComputedStats();
+    this.sabotageSpeedMult = stats.sabotageSpeedMult;
+    this.koko.applyStats(stats);
+    this.ibu.applyStats(stats);
+  }
 
   public resetStage(): void {
+    this.applyUpgrades();
     this.gauge = 0;
     this.gaugeActive = false;
     this.stars = [false, false, false];
     this.isFinaleActive = false;
     this.isStageCleared = false;
     this.finaleTimer = 0;
+    this.runBonusDna = 0;
     this.activeHidingSpot = null;
     this.nearbyProp = null;
 
+    this.particles.clear();
     this.koko.spawnAt(this.level.kokoSpawn);
     this.ibu.reset();
     this.cam.reset(this.level.kokoSpawn);
@@ -93,9 +116,11 @@ export class KitchenStageManager {
       const floor = this.starThresholds[idx] + 5;
       this.gauge = Math.min(100, Math.max(this.gauge + 35, floor));
       this.gaugeActive = true;
+      this.progression.addDna(50);
+      this.runBonusDna += 50;
       this.sound.playStarUnlock();
       this.callbacks.onStarUnlocked(idx);
-      this.callbacks.onToast(`★ BINTANG ${idx + 1} TERBUKA!`);
+      this.callbacks.onToast(`★ BINTANG ${idx + 1} TERBUKA! (+50 DNA)`);
     }
 
     const reactions = [
@@ -135,6 +160,8 @@ export class KitchenStageManager {
   }
 
   public update(dt: number, time: number, actionHeld: boolean): void {
+    this.particles.update(dt);
+
     if (this.isPaused || !this.isStarted || this.isStageCleared) return;
 
     // 1. Update Hiding Spots
@@ -166,7 +193,6 @@ export class KitchenStageManager {
       }
 
       if (!p.isRuined && this.koko.position.distanceTo(p.position) <= p.interactionRadius) {
-        // Prioritize active objective or allow interacting with current beat target
         if (!this.nearbyProp || p === objectiveProp) {
           this.nearbyProp = p;
         }
@@ -175,7 +201,7 @@ export class KitchenStageManager {
 
     if (this.nearbyProp && !this.nearbyProp.isRuined) {
       if (actionHeld) {
-        this.nearbyProp.currentProgress += dt;
+        this.nearbyProp.currentProgress += dt * this.sabotageSpeedMult;
         this.lastActionTime = time;
         this.actionTickSoundCooldown -= dt;
         if (this.actionTickSoundCooldown <= 0) {
@@ -183,15 +209,7 @@ export class KitchenStageManager {
           this.sound.playActionTick();
         }
         if (this.nearbyProp.currentProgress >= this.nearbyProp.requiredHoldDuration) {
-          this.nearbyProp.currentProgress = this.nearbyProp.requiredHoldDuration;
-          this.nearbyProp.isRuined = true;
-          this.nearbyProp.ruinedVisual.visible = true;
-          for (const obj of this.nearbyProp.pristineObjects) obj.visible = false;
-          this.sound.playPrankComplete();
-          this.callbacks.onStoryMessage(
-            'KOKO / "Misi kecil selesai. Jangan ketahuan dulu!"\nMenjauh; bintang terbuka saat Ibu menemukan keisengan.',
-            6
-          );
+          this.completeSabotage(this.nearbyProp);
         }
       } else if (this.nearbyProp.currentProgress > 0) {
         this.nearbyProp.currentProgress = Math.max(0, this.nearbyProp.currentProgress - dt * 0.75);
@@ -218,8 +236,44 @@ export class KitchenStageManager {
         this.sound.setCrawlActive(false);
         this.sound.setFlightBuzz(false, 0);
         this.sound.playStageClear();
-        this.callbacks.onStageClear(this.totalStars, this.gauge, 500);
+
+        const clearBaseDna = 500;
+        this.progression.recordStageClear(this.totalStars, this.gauge, clearBaseDna);
+        this.callbacks.onStageClear(
+          this.totalStars,
+          this.gauge,
+          clearBaseDna + this.runBonusDna,
+          this.progression.save.dna
+        );
       }
     }
+  }
+
+  private completeSabotage(prop: InteractiveProp): void {
+    prop.currentProgress = prop.requiredHoldDuration;
+    prop.isRuined = true;
+    prop.ruinedVisual.visible = true;
+    for (const obj of prop.pristineObjects) obj.visible = false;
+
+    // Game Juice: particle burst + micro screen shake
+    this.particles.spawnSabotageBurst(prop.type, prop.position);
+    this.cam.triggerShake(0.18, 0.25);
+    this.sound.playPrankComplete();
+
+    // High-Risk High-Reward Momentum Bonus when Ibu is nearby
+    const distToIbu = this.koko.position.distanceTo(this.ibu.rig.root.position);
+    if (distToIbu <= 2.9 * S) {
+      this.gauge = Math.min(100, this.gauge + 18);
+      this.gaugeActive = true;
+      this.progression.addDna(25);
+      this.runBonusDna += 25;
+      this.sound.playHighRiskBonus();
+      this.callbacks.onToast('⚡ AKSI NEKAT! +18% MOMENTUM & +25 DNA');
+    }
+
+    this.callbacks.onStoryMessage(
+      'KOKO / "Misi kecil selesai. Jangan ketahuan dulu!"\nMenjauh; bintang terbuka saat Ibu menemukan keisengan.',
+      6
+    );
   }
 }

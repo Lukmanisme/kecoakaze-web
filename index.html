@@ -12,6 +12,16 @@
     <div id="app">
       <canvas id="game-canvas"></canvas>
 
+      <!-- Danger Vignette & Windup Directional Telegraph -->
+      <div id="danger-vignette" class="danger-vignette hidden"></div>
+      <div id="threat-direction-indicator" class="threat-direction-indicator hidden">
+        <div id="threat-arrow" class="threat-arrow">▲</div>
+        <div class="threat-warning-text">⚠ BAHAYA! TEKAN [Q] ELAK</div>
+        <div class="threat-windup-track">
+          <div id="threat-windup-fill" class="threat-windup-fill"></div>
+        </div>
+      </div>
+
       <!-- World-projected Target Marker & Ibu Overhead Bubble -->
       <div id="world-overlays">
         <div id="target-marker" class="target-marker hidden"></div>
@@ -28,7 +38,7 @@
           <div class="card-kicker">KECOAKAZE / BAB 01</div>
           <div id="objective-title" class="objective-title">01 / CURI CEMILAN   0/3</div>
           <div id="objective-hint" class="objective-hint">
-            Dekati bahan sayur. Tahan AKSI (E/F) saat tombol muncul.
+            Dekati bahan sayur. Tahan AKSI (E/F) saat prompt muncul.
           </div>
           <div id="hiding-badge" class="hiding-badge hidden">SEMBUNYI</div>
         </div>
@@ -63,7 +73,20 @@
           </div>
           <div class="top-buttons">
             <button id="btn-mute" class="icon-btn" title="Suara (M)">🔊</button>
-            <button id="btn-pause" class="icon-btn" title="Jeda (Esc)">⏸</button>
+            <button id="btn-touch-toggle" class="icon-btn" title="Toggle Mode Touch / Desktop">📱</button>
+            <button id="btn-pause" class="icon-btn" title="Jeda (Esc / P)">⏸</button>
+          </div>
+        </div>
+
+        <!-- Desktop Pointer Lock Hint & Contextual Sabotage Prompt -->
+        <div id="pointer-lock-hint" class="pointer-lock-hint hidden">
+          Klik layar untuk kunci kamera mouse · <b>ESC</b> Pause
+        </div>
+
+        <div id="desktop-action-prompt" class="hud-card desktop-action-prompt hidden">
+          <div id="desktop-action-text" class="desktop-action-text">Tahan [E / F] MAKAN</div>
+          <div class="desktop-action-track">
+            <div id="desktop-action-fill" class="desktop-action-fill"></div>
           </div>
         </div>
 
@@ -72,34 +95,35 @@
           <div id="story-text" class="story-text"></div>
         </div>
 
-        <!-- Stamina & Surface Bar (Bottom Left-Center) -->
+        <!-- Stamina & Surface Bar (Bottom Center) -->
         <div class="stamina-pill">
           <span class="stamina-label">SAYAP</span>
           <div class="stamina-track">
             <div id="stamina-fill" class="stamina-fill"></div>
           </div>
+          <span id="dna-hud-badge" class="dna-hud-badge">0 DNA</span>
         </div>
 
         <!-- Desktop Controls Legend -->
         <div id="desktop-hints" class="desktop-hints">
           <span><b>WASD</b> Gerak</span>
-          <span><b>Seret Mouse</b> Kamera</span>
+          <span><b>Mouse</b> Kamera</span>
           <span><b>Spasi</b> Terbang</span>
           <span><b>Shift</b> Layang</span>
           <span><b>Q</b> Elak</span>
-          <span><b>E / F</b> Tahan Aksi</span>
+          <span><b>E / F</b> Aksi</span>
         </div>
 
-        <!-- Mobile Touch Controls -->
+        <!-- Mobile Touch Controls (auto-hidden on desktop unless toggled) -->
         <div id="touch-look-zone" class="touch-look-zone"></div>
 
-        <div id="joystick-zone" class="joystick-zone">
+        <div id="joystick-zone" class="joystick-zone hidden">
           <div id="joystick-base" class="joystick-base">
             <div id="joystick-knob" class="joystick-knob"></div>
           </div>
         </div>
 
-        <div id="action-cluster" class="action-cluster">
+        <div id="action-cluster" class="action-cluster hidden">
           <button id="btn-glide" class="touch-btn btn-small">LAYANG</button>
           <button id="btn-dodge" class="touch-btn btn-small">ELAK</button>
           <button id="btn-fly" class="touch-btn btn-fly">TERBANG</button>
@@ -116,11 +140,14 @@
         <div id="toast-banner" class="toast-banner hidden"></div>
       </div>
 
-      <!-- Start / Intro Overlay (quick one-click start to unlock Web Audio) -->
+      <!-- Start / Intro Overlay -->
       <div id="start-overlay" class="modal-backdrop">
         <div class="hud-card modal-card start-card">
           <div class="card-kicker">LEVEL 01 · DAPUR HURU-HARA</div>
           <h1 class="modal-title">KECOAKAZE: Teror dari Udara</h1>
+          <div id="start-save-summary" class="save-summary-pill">
+            MUTATION DNA: 0 · REKOR: ☆ ☆ ☆
+          </div>
           <p class="modal-desc">
             Koko lapar, sementara Ibu sibuk memasak dan membersihkan dapur.
             Merayap di lantai, dinding, dan plafon, sabotase <b>3 target keisengan</b>
@@ -131,7 +158,10 @@
             <div>2. <b>Sabotase Sup</b> — Wajan / Panci di Kompor Gas</div>
             <div>3. <b>Pesta di Meja</b> — Hidangan di Meja Makan</div>
           </div>
-          <button id="btn-start" class="primary-btn">MULAI MISI DAPUR</button>
+          <div class="modal-actions">
+            <button id="btn-start" class="primary-btn">MULAI MISI DAPUR</button>
+            <button id="btn-start-lab" class="secondary-btn">🧬 LAB MUTASI</button>
+          </div>
         </div>
       </div>
 
@@ -142,11 +172,12 @@
           <h2 class="modal-title">PAUSE</h2>
           <p class="modal-desc">
             Kontrol: <b>WASD</b> / Joystick untuk merayap 360° &amp; terbang,
-            <b>Spasi</b> lepas landas/naik, <b>Shift</b> melayang, <b>Q</b> elak sandal,
-            <b>E / F</b> tahan aksi keisengan.
+            <b>Mouse / Geser Layar</b> putar kamera, <b>Spasi</b> terbang,
+            <b>Shift</b> melayang, <b>Q</b> elak saat bahaya, <b>E / F</b> tahan aksi.
           </p>
           <div class="modal-actions">
             <button id="btn-resume" class="primary-btn">LANJUTKAN</button>
+            <button id="btn-pause-touch" class="secondary-btn">📱 MODE TOUCH: OFF</button>
             <button id="btn-pause-restart" class="secondary-btn">ULANG STAGE</button>
           </div>
         </div>
@@ -168,13 +199,28 @@
           </div>
           <div id="result-momentum" class="result-stat">MOMENTUM TEROR AKHIR: 100%</div>
           <div id="result-dna" class="result-dna">+500 MUTATION DNA</div>
+          <div id="result-total-dna" class="result-stat">TOTAL DNA TERSIMPAN: 500</div>
           <div class="modal-actions">
             <button id="btn-restart" class="primary-btn">MAIN LAGI</button>
+            <button id="btn-result-lab" class="secondary-btn">🧬 LAB MUTASI</button>
             <button id="btn-epilog" class="secondary-btn">EPILOG</button>
           </div>
           <div id="epilog-note" class="epilog-note hidden">
             <b>BAB 02: KAMAR SI GAMER (SEGERA HADIR)</b><br />
             Koko mengintip dari celah pintu — cahaya RGB dan kipas angin berosilasi menanti di level berikutnya!
+          </div>
+        </div>
+      </div>
+
+      <!-- Lab Mutasi DNA Modal -->
+      <div id="lab-overlay" class="modal-backdrop hidden">
+        <div class="hud-card modal-card lab-card">
+          <div class="card-kicker">UPGRADE PERMANEN · TERSIMPAN LOKAL</div>
+          <h2 class="modal-title">🧬 LAB MUTASI DNA</h2>
+          <div id="lab-dna-balance" class="lab-dna-balance">MUTATION DNA: 0</div>
+          <div id="lab-grid" class="lab-grid"></div>
+          <div class="modal-actions">
+            <button id="btn-lab-close" class="primary-btn">SELESAI &amp; KEMBALI</button>
           </div>
         </div>
       </div>
