@@ -15,6 +15,7 @@ import { SurfaceAlignedCamera } from '../camera/surfaceCamera';
 import { ProceduralAudioEngine } from '../audio/ProceduralAudioEngine';
 import { ProgressionManager } from './progression';
 import { SabotageVfxPreset, VFXManager } from '../vfx/VFXManager';
+import { triggerMicroHaptic } from '../input/MobileTouchController';
 
 export interface StageCallbacks {
   onStoryMessage: (text: string, duration: number) => void;
@@ -198,6 +199,9 @@ export class KitchenStageManager implements StageController {
 
     if (this.isPaused || !this.isStarted || this.isStageCleared) {
       this.sound.stopAllLoops();
+      if (!this.isStarted) {
+        this.koko.rig.updateAnimation(dt, time, this.koko.state, 0);
+      }
       this.cam.update(
         dt,
         this.koko.position,
@@ -330,6 +334,7 @@ export class KitchenStageManager implements StageController {
     this.vfx.spawnSabotageBurst(prop.position, preset);
     this.cam.triggerShake(0.18, 0.25);
     this.sound.playSabotageComplete();
+    triggerMicroHaptic(18);
 
     const distToIbu = this.koko.position.distanceTo(this.ibu.rig.root.position);
     if (distToIbu <= 2.9 * S) {

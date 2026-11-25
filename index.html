@@ -24,7 +24,7 @@
       </div>
 
       <!-- World-projected Target Marker & Boss Overhead Bubble -->
-      <div id="world-overlays">
+      <div id="world-overlays" class="hidden">
         <div id="target-marker" class="target-marker hidden"></div>
         <div id="ibu-bubble" class="ibu-bubble hidden">
           <div id="ibu-alert-badge" class="ibu-alert-badge hidden">!</div>
@@ -32,8 +32,18 @@
         </div>
       </div>
 
+      <!-- Full-screen Touch / Pointer Surface -->
+      <div id="touch-look-zone" class="touch-look-zone"></div>
+
+      <!-- Floating Virtual Joystick (spawns at left touch coordinates) -->
+      <div id="floating-joystick" class="floating-joystick hidden">
+        <div class="joystick-base">
+          <div id="joystick-knob" class="joystick-knob"></div>
+        </div>
+      </div>
+
       <!-- Main HUD (Safe Area aware) -->
-      <div id="hud-layer" class="hud-layer">
+      <div id="hud-layer" class="hud-layer hidden">
         <div class="hud-top-bar">
           <!-- Top Left: Objective Card -->
           <div class="hud-card objective-card">
@@ -93,6 +103,18 @@
           </div>
         </div>
 
+        <!-- 15-Second Non-Blocking Micro-Tutorial Card -->
+        <div id="micro-tutorial-card" class="hud-card micro-tutorial-card hidden">
+          <div class="tutorial-head">
+            <span id="tutorial-step-badge" class="tutorial-step-badge">TUTORIAL 1/4</span>
+            <button id="btn-tutorial-skip" class="tutorial-skip-btn" type="button">Lewati ×</button>
+          </div>
+          <div id="tutorial-text" class="tutorial-text"></div>
+          <div class="tutorial-progress-track">
+            <div id="tutorial-progress-fill" class="tutorial-progress-fill"></div>
+          </div>
+        </div>
+
         <!-- Story Radio Card (Bottom Center, non-modal) -->
         <div id="story-card" class="hud-card story-card">
           <div id="story-text" class="story-text"></div>
@@ -117,25 +139,29 @@
           <span><b>E / F</b> Aksi</span>
         </div>
 
-        <!-- Mobile Touch Controls (auto-hidden on desktop unless toggled) -->
-        <div id="touch-look-zone" class="touch-look-zone"></div>
-
-        <div id="joystick-zone" class="joystick-zone hidden">
-          <div id="joystick-base" class="joystick-base">
-            <div id="joystick-knob" class="joystick-knob"></div>
-          </div>
-        </div>
-
+        <!-- Mobile Ergonomic Thumb-Arc Action Cluster -->
         <div id="action-cluster" class="action-cluster hidden">
-          <button id="btn-glide" class="touch-btn btn-small">LAYANG</button>
-          <button id="btn-dodge" class="touch-btn btn-small">ELAK</button>
-          <button id="btn-fly" class="touch-btn btn-fly">TERBANG</button>
-          <button id="btn-action" class="touch-btn btn-action hidden">
-            <svg class="action-ring" viewBox="0 0 64 64">
+          <button id="btn-glide" class="touch-btn btn-glide" type="button">LAYANG</button>
+
+          <button id="btn-dodge" class="touch-btn btn-dodge" type="button">
+            <span>ELAK</span>
+            <span id="dodge-cooldown-overlay" class="dodge-cd-overlay hidden"></span>
+          </button>
+
+          <button id="btn-fly" class="touch-btn btn-fly" type="button">
+            <svg class="fly-ring" viewBox="0 0 64 64">
               <circle class="ring-bg" cx="32" cy="32" r="28" />
-              <circle id="action-ring-progress" class="ring-fg" cx="32" cy="32" r="28" />
+              <circle id="fly-stamina-ring" class="ring-fg-mint" cx="32" cy="32" r="28" />
             </svg>
-            <span id="btn-action-label">MAKAN</span>
+            <span>TERBANG</span>
+          </button>
+
+          <button id="btn-action" class="touch-btn btn-action dimmed" type="button">
+            <svg class="action-ring" viewBox="0 0 64 64">
+              <circle class="ring-bg" cx="32" cy="32" r="27" />
+              <circle id="action-ring-progress" class="ring-fg" cx="32" cy="32" r="27" />
+            </svg>
+            <span id="btn-action-label">AKSI</span>
           </button>
         </div>
 
@@ -143,25 +169,38 @@
         <div id="toast-banner" class="toast-banner hidden"></div>
       </div>
 
-      <!-- Start / Stage Selector Overlay -->
-      <div id="start-overlay" class="modal-backdrop">
+      <!-- Main Menu Utama (Live 3D Backdrop) -->
+      <div id="start-overlay" class="modal-backdrop start-backdrop">
         <div class="hud-card modal-card start-card">
-          <div class="card-kicker">PILIH BAB · WEB 3D EDITION</div>
-          <h1 class="modal-title">KECOAKAZE: Teror dari Udara</h1>
-          <div id="start-save-summary" class="save-summary-pill">
-            MUTATION DNA: 0
+          <div class="start-topbar">
+            <div id="start-save-summary" class="save-summary-pill">MUTATION DNA: 0</div>
+            <div class="start-topbar-btns">
+              <button id="btn-start-lab" class="secondary-btn small-btn" type="button">🧬 LAB MUTASI</button>
+              <button id="btn-start-settings" class="secondary-btn small-btn" type="button">⚙ PENGATURAN</button>
+            </div>
           </div>
+
+          <div class="card-kicker">WEB 3D STEALTH ACTION · 360° MERAYAP</div>
+          <h1 class="modal-title main-logo-title">KECOAKAZE: Teror dari Udara</h1>
+          <p class="menu-subtitle">
+            Menyusup di sudut rumah, sabotase target tanpa ketahuan, dan kendalikan langit ruangan!
+          </p>
 
           <div class="stage-selector">
             <button id="btn-select-bab1" class="stage-tab active" type="button">
               <div class="stage-tab-kicker">BAB 01</div>
               <div class="stage-tab-name">Dapur Huru-Hara</div>
               <div id="bab1-best-stars" class="stage-tab-stars">☆ ☆ ☆</div>
+              <div id="bab1-best-momentum" class="stage-tab-meta">Rekor Momentum: 0%</div>
             </button>
             <button id="btn-select-bab2" class="stage-tab" type="button">
-              <div class="stage-tab-kicker">BAB 02</div>
+              <div class="stage-tab-head">
+                <span class="stage-tab-kicker">BAB 02</span>
+                <span id="bab2-status-tag" class="stage-status-tag">MODE UJI COBA</span>
+              </div>
               <div class="stage-tab-name">Kamar Si Gamer</div>
               <div id="bab2-best-stars" class="stage-tab-stars">☆ ☆ ☆</div>
+              <div class="stage-tab-meta">Kipas Angin · RGB · Raket</div>
             </button>
           </div>
 
@@ -169,8 +208,7 @@
           <div id="start-checklist" class="start-checklist"></div>
 
           <div class="modal-actions">
-            <button id="btn-start" class="primary-btn">MULAI MISI</button>
-            <button id="btn-start-lab" class="secondary-btn">🧬 LAB MUTASI</button>
+            <button id="btn-start" class="primary-btn cta-btn" type="button">MULAI MISI</button>
           </div>
         </div>
       </div>
@@ -181,9 +219,9 @@
           <div class="card-kicker">PERMAINAN DIJEDA</div>
           <h2 class="modal-title">PAUSE</h2>
           <p class="modal-desc">
-            Kontrol: <b>WASD</b> / Joystick untuk merayap 360° &amp; terbang,
-            <b>Mouse / Geser Layar</b> putar kamera, <b>Spasi</b> terbang,
-            <b>Shift</b> melayang, <b>Q</b> elak saat bahaya, <b>E / F</b> tahan aksi.
+            Kontrol: <b>WASD</b> / Floating Joystick untuk merayap 360° &amp; terbang,
+            <b>Mouse / Trackpad</b> putar kamera, <b>Spasi</b> terbang,
+            <b>Shift</b> melayang, <b>Q</b> elak, <b>E / F</b> tahan aksi.
           </p>
           <div class="pause-quality-panel">
             <div class="pause-quality-head">
@@ -199,10 +237,80 @@
             </div>
           </div>
           <div class="modal-actions">
-            <button id="btn-resume" class="primary-btn">LANJUTKAN</button>
-            <button id="btn-pause-touch" class="secondary-btn">📱 MODE TOUCH: OFF</button>
-            <button id="btn-pause-restart" class="secondary-btn">ULANG STAGE</button>
-            <button id="btn-pause-menu" class="secondary-btn">MENU BAB</button>
+            <button id="btn-resume" class="primary-btn" type="button">LANJUTKAN</button>
+            <button id="btn-pause-settings" class="secondary-btn" type="button">⚙ PENGATURAN</button>
+            <button id="btn-pause-touch" class="secondary-btn" type="button">📱 MODE TOUCH: OFF</button>
+            <button id="btn-pause-restart" class="secondary-btn" type="button">ULANG STAGE</button>
+            <button id="btn-pause-menu" class="secondary-btn" type="button">KEMBALI KE MENU</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings Modal -->
+      <div id="settings-overlay" class="modal-backdrop hidden">
+        <div class="hud-card modal-card settings-card">
+          <div class="card-kicker">KONFIGURASI REAL-TIME · LOCALSTORAGE</div>
+          <h2 class="modal-title">⚙ PENGATURAN</h2>
+
+          <div class="settings-list">
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-name">Sensitivitas Kamera</div>
+                <div class="setting-sub">Atur kecepatan rotasi mouse &amp; sentuh</div>
+              </div>
+              <div class="setting-ctrl slider-ctrl">
+                <input id="set-sens" type="range" min="0.2" max="2.5" step="0.1" value="1.0" />
+                <span id="set-sens-val" class="setting-val">1.0x</span>
+              </div>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-name">Invert Sumbu-Y Kamera</div>
+                <div class="setting-sub">Balik arah anggukan vertikal kamera</div>
+              </div>
+              <button id="set-invert-y" class="toggle-pill" type="button">OFF</button>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-name">Soft Camera Auto-Follow</div>
+                <div class="setting-sub">Kamera perlahan mengikuti arah gerak</div>
+              </div>
+              <button id="set-autofollow" class="toggle-pill active" type="button">ON</button>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-name">Volume Master Audio</div>
+                <div class="setting-sub">Efek suara prosedural Web Audio</div>
+              </div>
+              <div class="setting-ctrl slider-ctrl">
+                <input id="set-vol" type="range" min="0" max="100" step="5" value="80" />
+                <span id="set-vol-val" class="setting-val">80%</span>
+                <button id="set-mute" class="toggle-pill" type="button">🔊</button>
+              </div>
+            </div>
+
+            <div class="setting-row col-row">
+              <div class="setting-info">
+                <div class="setting-name">Kualitas Grafis</div>
+                <div class="setting-sub">Otomatis menyesuaikan FPS perangkat</div>
+              </div>
+              <div class="pause-quality-grid settings-q-grid">
+                <button class="settings-q-btn quality-btn" data-qmode="AUTO" type="button">AUTO</button>
+                <button class="settings-q-btn quality-btn" data-qmode="ULTRA" type="button">ULTRA</button>
+                <button class="settings-q-btn quality-btn" data-qmode="HIGH" type="button">TINGGI</button>
+                <button class="settings-q-btn quality-btn" data-qmode="MEDIUM" type="button">SEDANG</button>
+                <button class="settings-q-btn quality-btn" data-qmode="LOW" type="button">RINGAN</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-actions settings-footer">
+            <button id="btn-replay-tutorial" class="secondary-btn" type="button">🔄 Ulangi Tutorial</button>
+            <button id="btn-reset-save" class="danger-outline-btn" type="button">🗑 Reset Data Game</button>
+            <button id="btn-settings-close" class="primary-btn" type="button">SELESAI &amp; KEMBALI</button>
           </div>
         </div>
       </div>
@@ -222,10 +330,10 @@
           <div id="result-dna" class="result-dna">+500 MUTATION DNA</div>
           <div id="result-total-dna" class="result-stat">TOTAL DNA TERSIMPAN: 500</div>
           <div class="modal-actions">
-            <button id="btn-next-bab2" class="primary-btn">LANJUT BAB 02: KAMAR SI GAMER ▶</button>
-            <button id="btn-restart" class="secondary-btn">MAIN LAGI</button>
-            <button id="btn-result-lab" class="secondary-btn">🧬 LAB MUTASI</button>
-            <button id="btn-result-menu" class="secondary-btn">MENU BAB</button>
+            <button id="btn-next-bab2" class="primary-btn" type="button">LANJUT BAB 02: KAMAR SI GAMER ▶</button>
+            <button id="btn-restart" class="secondary-btn" type="button">MAIN LAGI</button>
+            <button id="btn-result-lab" class="secondary-btn" type="button">🧬 LAB MUTASI</button>
+            <button id="btn-result-menu" class="secondary-btn" type="button">KEMBALI KE MENU</button>
           </div>
         </div>
       </div>
@@ -238,7 +346,7 @@
           <div id="lab-dna-balance" class="lab-dna-balance">MUTATION DNA: 0</div>
           <div id="lab-grid" class="lab-grid"></div>
           <div class="modal-actions">
-            <button id="btn-lab-close" class="primary-btn">SELESAI &amp; KEMBALI</button>
+            <button id="btn-lab-close" class="primary-btn" type="button">SELESAI &amp; KEMBALI</button>
           </div>
         </div>
       </div>
@@ -252,8 +360,8 @@
             Semua progres stage di-reset ke awal!
           </p>
           <div class="modal-actions">
-            <button id="btn-retry" class="primary-btn">COBA LAGI</button>
-            <button id="btn-caught-menu" class="secondary-btn">MENU BAB</button>
+            <button id="btn-retry" class="primary-btn" type="button">COBA LAGI</button>
+            <button id="btn-caught-menu" class="secondary-btn" type="button">KEMBALI KE MENU</button>
           </div>
         </div>
       </div>

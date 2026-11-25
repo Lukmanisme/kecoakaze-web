@@ -12,6 +12,12 @@ export class SurfaceAlignedCamera {
   private lastTargetPos = new THREE.Vector3();
   private currentFollowDist = 2.45;
 
+  private sensitivity = 1.0;
+  private invertY = false;
+  private autoFollow = true;
+  private menuOrbitMode = true;
+  private menuOrbitAngle = 0.45;
+
   private shakeTimer = 0;
   private shakeIntensity = 0;
   private readonly defaultFov = 62;
@@ -60,18 +66,44 @@ export class SurfaceAlignedCamera {
     if (locked) this.recenterTimer = 0;
   }
 
+  public setSensitivity(value: number): void {
+    this.sensitivity = Math.max(0.2, Math.min(2.5, value));
+  }
+
+  public setInvertY(invert: boolean): void {
+    this.invertY = invert;
+  }
+
+  public setAutoFollow(enabled: boolean): void {
+    this.autoFollow = enabled;
+  }
+
+  public setMenuOrbit(enabled: boolean): void {
+    if (this.menuOrbitMode === enabled) return;
+    this.menuOrbitMode = enabled;
+    if (!enabled) {
+      this.orbitYaw = 0;
+      this.orbitPitch = 0.22;
+      this.recenterTimer = 0;
+    }
+  }
+
   public onSwipeStart(): void {
     this.isSwiping = true;
     this.recenterTimer = 0;
   }
 
-  public addSwipeDelta(dx: number, dy: number): void {
-    this.isSwiping = true;
-    this.recenterTimer = 0;
-    const sens = this.isPointerLocked ? 0.0036 : 0.0065;
+  public addSwipeDelta(dx: number, dy: number, isInertia = false): void {
+    if (!isInertia) {
+      this.isSwiping = true;
+      this.recenterTimer = 0;
+    }
+    const baseSens = this.isPointerLocked ? 0.0036 : 0.0065;
+    const sens = baseSens * this.sensitivity;
+    const ySign = this.invertY ? -1 : 1;
     this.orbitYaw -= dx * sens;
     this.orbitPitch = THREE.MathUtils.clamp(
-      this.orbitPitch + dy * sens * 0.85,
+      this.orbitPitch + dy * sens * 0.85 * ySign,
       -0.42,
       1.15
     );
@@ -102,6 +134,37 @@ export class SurfaceAlignedCamera {
     surfaceNormal: THREE.Vector3,
     combatWideFov = false
   ): void {
+    if (this.menuOrbitMode) {
+      this.menuOrbitAngle += dt * 0.24;
+      const orbitDist = 2.15;
+      const pivot = targetPos.clone().add(new THREE.Vector3(0, 0.34, 0));
+      const dir = new THREE.Vector3(
+        Math.sin(this.menuOrbitAngle),
+        0.38,
+        Math.cos(this.menuOrbitAngle)
+      ).normalize();
+
+      let safeDist = orbitDist;
+      this.raycaster.set(pivot, dir);
+      this.raycaster.near = 0;
+      this.raycaster.far = orbitDist + 0.1;
+      const hits = this.raycaster.intersectObjects(this.obstacles, false);
+      if (hits.length > 0) {
+        safeDist = Math.max(0.55, hits[0].distance - this.sphereRadius);
+      }
+
+      const desired = pivot.clone().addScaledVector(dir, safeDist);
+      const pad = 0.25;
+      desired.x = THREE.MathUtils.clamp(desired.x, -this.bounds.halfW + pad, this.bounds.halfW - pad);
+      desired.z = THREE.MathUtils.clamp(desired.z, -this.bounds.halfD + pad, this.bounds.halfD - pad);
+      desired.y = THREE.MathUtils.clamp(desired.y, 0.28, this.bounds.height - pad);
+
+      this.camera.position.lerp(desired, Math.min(1, dt * 4));
+      this.camera.up.set(0, 1, 0);
+      this.camera.lookAt(pivot);
+      return;
+    }
+
     const targetFov = combatWideFov ? 72 : this.defaultFov;
     if (Math.abs(this.camera.fov - targetFov) > 0.05) {
       this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, Math.min(1, dt * 4));
@@ -122,11 +185,11 @@ export class SurfaceAlignedCamera {
 
     const moved = targetPos.distanceToSquared(this.lastTargetPos) > 0.0002;
     this.lastTargetPos.copy(targetPos);
-    if (!this.isSwiping && !this.isPointerLocked && moved) {
+    if (this.autoFollow && !this.isSwiping && !this.isPointerLocked && moved) {
       this.recenterTimer += dt;
-      if (this.recenterTimer >= 1.8) {
-        this.orbitYaw = THREE.MathUtils.lerp(this.orbitYaw, 0, Math.min(1, dt * 1.8));
-        this.orbitPitch = THREE.MathUtils.lerp(this.orbitPitch, 0.22, Math.min(1, dt * 1.8));
+      if (this.recenterTimer >= 0.85) {
+        this.orbitYaw = THREE.MathUtils.lerp(this.orbitYaw, 0, Math.min(1, dt * 2.1));
+        this.orbitPitch = THREE.MathUtils.lerp(this.orbitPitch, 0.22, Math.min(1, dt * 2.1));
       }
     } else if (!moved) {
       this.recenterTimer = 0;

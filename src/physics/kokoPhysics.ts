@@ -13,6 +13,7 @@ import {
 import { KokoRig } from '../entities/kokoModel';
 import { CrawlSurfaceType, ProceduralAudioEngine } from '../audio/ProceduralAudioEngine';
 import { VFXManager } from '../vfx/VFXManager';
+import { triggerMicroHaptic } from '../input/MobileTouchController';
 
 export interface LevelPhysicsConfig {
   walkables: THREE.Object3D[];
@@ -279,6 +280,7 @@ export class KokoController {
     this.velocity.addScaledVector(this.surfaceNormal, 4.2);
     this.position.addScaledVector(this.surfaceNormal, 0.16);
     this.sound.playTakeoff();
+    triggerMicroHaptic(12);
   }
 
   private performDodge(input: InputState, cameraForward: THREE.Vector3): void {
@@ -313,6 +315,7 @@ export class KokoController {
     this.position.addScaledVector(dodgeDir, safeBurst);
     this.vfx.spawnDodgeTrail(this.visualPosition, dodgeDir);
     this.sound.playDodgeWhoosh();
+    triggerMicroHaptic(12);
   }
 
   private processCrawling(

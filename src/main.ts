@@ -18,6 +18,7 @@ import { ProgressionManager } from './game/progression';
 import { VFXManager } from './vfx/VFXManager';
 import { ProceduralTextures } from './graphics/ProceduralTextures';
 import { QualityManager } from './graphics/QualityManager';
+import { SettingsManager } from './game/SettingsManager';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -68,6 +69,14 @@ const hud = new HUDController(surfaceCam, sound);
 
 const quality = new QualityManager(renderer, textures, vfx, (msg) => hud.showToast(msg));
 quality.registerShadowLights([kitchenLevel.shadowLight, gamerRoom.shadowLight], scene);
+
+const settings = new SettingsManager();
+settings.bindTargets({
+  cam: surfaceCam,
+  audio: sound,
+  quality,
+  onUiSync: () => hud.refreshSettingsUI(),
+});
 
 let bab1Stage!: KitchenStageManager;
 let bab2Stage!: GamerRoomStageManager;
@@ -147,6 +156,7 @@ hud.bindStageBridge({
   selectAndLoadStage,
   progression,
   quality,
+  settings,
   isFlashbangGlare: () => activeStage === bab2Stage && bab2Stage.isFlashbangGlare,
 });
 
@@ -184,9 +194,11 @@ function tick(): void {
 
   const snap = activeStage.getHudSnapshot();
   hud.updateHUD(
+    dt,
     now,
     snap,
     koko,
+    input,
     progression.save.dna,
     activeStage.isPaused,
     activeStage.isStarted

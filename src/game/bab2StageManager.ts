@@ -16,6 +16,7 @@ import { ProceduralAudioEngine } from '../audio/ProceduralAudioEngine';
 import { ProgressionManager } from './progression';
 import { VFXManager } from '../vfx/VFXManager';
 import { StageCallbacks } from './stageManager';
+import { triggerMicroHaptic } from '../input/MobileTouchController';
 
 export class GamerRoomStageManager implements StageController {
   public readonly stageId: StageId = 'bab2';
@@ -145,6 +146,10 @@ export class GamerRoomStageManager implements StageController {
     if (this.isPaused || !this.isStarted || this.isStageCleared) {
       this.vfx.updateSwatterSparks(dt, false, 0);
       this.sound.stopAllLoops();
+      if (!this.isStarted) {
+        this.koko.rig.updateAnimation(dt, time, this.koko.state, 0);
+        this.room.rgbLighting.update(dt, time, () => {});
+      }
       this.cam.update(
         dt,
         this.koko.position,
@@ -309,6 +314,7 @@ export class GamerRoomStageManager implements StageController {
     }
 
     this.sound.playSabotageComplete();
+    triggerMicroHaptic(18);
     if (idx === 0) {
       // Target 01: Kontaminasi Minuman
       this.vfx.spawnSabotageBurst(prop.position, 'soda_fizz');

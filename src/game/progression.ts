@@ -127,6 +127,11 @@ export class ProgressionManager {
     this.persist();
   }
 
+  public resetAllData(): void {
+    this.data = defaultSave();
+    this.persist();
+  }
+
   public getNextCost(key: UpgradeKey): number | null {
     const lvl = this.data.upgrades[key];
     if (lvl >= MAX_UPGRADE_LEVEL) return null;

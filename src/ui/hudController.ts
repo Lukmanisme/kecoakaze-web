@@ -5,6 +5,9 @@ import { SurfaceAlignedCamera } from '../camera/surfaceCamera';
 import { ProceduralAudioEngine } from '../audio/ProceduralAudioEngine';
 import { MAX_UPGRADE_LEVEL, ProgressionManager, UPGRADE_DEFS } from '../game/progression';
 import { QualityManager, QualityMode } from '../graphics/QualityManager';
+import { MobileTouchController } from '../input/MobileTouchController';
+import { SettingsManager } from '../game/SettingsManager';
+import { MicroTutorial } from './MicroTutorial';
 
 export interface StageBridge {
   getActiveStage: () => StageController;
@@ -12,35 +15,32 @@ export interface StageBridge {
   selectAndLoadStage: (id: StageId, startImmediately: boolean) => void;
   progression: ProgressionManager;
   quality: QualityManager;
+  settings: SettingsManager;
   isFlashbangGlare: () => boolean;
 }
 
 export class HUDController {
   private readonly keys = new Set<string>();
-  private flyJustPressed = false;
-  private dodgeJustPressed = false;
-  private mobileFlyHeld = false;
-  private mobileGlideHeld = false;
-  private mobileActionHeld = false;
-  private mobileMoveX = 0;
-  private mobileMoveY = 0;
+  private keyFlyJustPressed = false;
+  private keyDodgeJustPressed = false;
 
   private touchMode = false;
   private isPointerLocked = false;
   private suppressAutoPauseOnUnlock = false;
 
-  private pointerLookId: number | null = null;
-  private lastLookX = 0;
-  private lastLookY = 0;
-  private joyPointerId: number | null = null;
-
   private storyUntil = 0;
   private toastUntil = 0;
   private labReturnTarget: 'start' | 'result' = 'start';
+  private settingsReturnTarget: 'start' | 'pause' = 'start';
+  private resetConfirmUntil = 0;
 
   private bridge: StageBridge | null = null;
+  private readonly touchCtrl: MobileTouchController;
+  private readonly tutorial: MicroTutorial;
 
   // DOM refs
+  private readonly worldOverlays = document.getElementById('world-overlays')!;
+  private readonly hudLayer = document.getElementById('hud-layer')!;
   private readonly objectiveChapter = document.getElementById('objective-chapter')!;
   private readonly objectiveTitle = document.getElementById('objective-title')!;
   private readonly objectiveHint = document.getElementById('objective-hint')!;
@@ -78,11 +78,6 @@ export class HUDController {
   private readonly desktopActionText = document.getElementById('desktop-action-text')!;
   private readonly desktopActionFill = document.getElementById('desktop-action-fill')!;
 
-  private readonly joystickZone = document.getElementById('joystick-zone')!;
-  private readonly actionCluster = document.getElementById('action-cluster')!;
-  private readonly btnAction = document.getElementById('btn-action')!;
-  private readonly btnActionLabel = document.getElementById('btn-action-label')!;
-  private readonly actionRing = document.getElementById('action-ring-progress')!;
   private readonly btnMute = document.getElementById('btn-mute')!;
   private readonly btnTouchToggle = document.getElementById('btn-touch-toggle')!;
   private readonly btnPauseTouch = document.getElementById('btn-pause-touch')!;
@@ -96,9 +91,12 @@ export class HUDController {
   private readonly btnSelectBab1 = document.getElementById('btn-select-bab1')!;
   private readonly btnSelectBab2 = document.getElementById('btn-select-bab2')!;
   private readonly bab1StarsEl = document.getElementById('bab1-best-stars')!;
+  private readonly bab1MomentumEl = document.getElementById('bab1-best-momentum')!;
   private readonly bab2StarsEl = document.getElementById('bab2-best-stars')!;
+  private readonly bab2StatusTagEl = document.getElementById('bab2-status-tag')!;
 
   private readonly pauseOverlay = document.getElementById('pause-overlay')!;
+  private readonly settingsOverlay = document.getElementById('settings-overlay')!;
   private readonly resultOverlay = document.getElementById('result-overlay')!;
   private readonly resultKicker = document.getElementById('result-kicker')!;
   private readonly resultTitle = document.getElementById('result-title')!;
@@ -116,16 +114,39 @@ export class HUDController {
     document.querySelectorAll<HTMLButtonElement>('.quality-btn[data-qmode]')
   );
 
+  // Settings modal DOM controls
+  private readonly setSensInput = document.getElementById('set-sens') as HTMLInputElement;
+  private readonly setSensVal = document.getElementById('set-sens-val')!;
+  private readonly setInvertYBtn = document.getElementById('set-invert-y')!;
+  private readonly setAutoFollowBtn = document.getElementById('set-autofollow')!;
+  private readonly setVolInput = document.getElementById('set-vol') as HTMLInputElement;
+  private readonly setVolVal = document.getElementById('set-vol-val')!;
+  private readonly setMuteBtn = document.getElementById('set-mute')!;
+  private readonly btnReplayTutorial = document.getElementById('btn-replay-tutorial')!;
+  private readonly btnResetSave = document.getElementById('btn-reset-save')!;
+
   private readonly projVec = new THREE.Vector3();
 
   constructor(
     private readonly cam: SurfaceAlignedCamera,
     private readonly sound: ProceduralAudioEngine
   ) {
+    this.tutorial = new MicroTutorial();
+    this.touchCtrl = new MobileTouchController(
+      cam,
+      sound,
+      () => {
+        const st = this.bridge?.getActiveStage();
+        return Boolean(st?.isStarted && !st.isPaused && !st.isStageCleared);
+      },
+      () => this.tryLockPointer(),
+      () => this.setTouchMode(true)
+    );
+
     this.touchMode = this.detectInitialTouch();
     this.applyTouchModeUI();
     this.btnMute.textContent = this.sound.muted ? '🔇' : '🔊';
-    this.bindInputs();
+    this.bindKeyboardAndLock();
   }
 
   private detectInitialTouch(): boolean {
@@ -143,8 +164,7 @@ export class HUDController {
   }
 
   private applyTouchModeUI(): void {
-    this.joystickZone.classList.toggle('hidden', !this.touchMode);
-    this.actionCluster.classList.toggle('hidden', !this.touchMode);
+    this.touchCtrl.setTouchMode(this.touchMode);
     this.desktopHints.classList.toggle('hidden', this.touchMode);
     this.btnTouchToggle.classList.toggle('active', this.touchMode);
     this.btnPauseTouch.textContent = `📱 MODE TOUCH: ${this.touchMode ? 'ON' : 'OFF'}`;
@@ -175,23 +195,28 @@ export class HUDController {
   public bindStageBridge(bridge: StageBridge): void {
     this.bridge = bridge;
     this.refreshStartMenu();
+    this.refreshSettingsUI();
 
     this.btnSelectBab1.addEventListener('click', () => {
       this.sound.unlock();
       bridge.selectAndLoadStage('bab1', false);
+      this.cam.setMenuOrbit(true);
       this.refreshStartMenu();
     });
 
     this.btnSelectBab2.addEventListener('click', () => {
       this.sound.unlock();
       bridge.selectAndLoadStage('bab2', false);
+      this.cam.setMenuOrbit(true);
       this.refreshStartMenu();
     });
 
     document.getElementById('btn-start')!.addEventListener('click', () => {
       this.sound.unlock();
       this.startOverlay.classList.add('hidden');
+      this.cam.setMenuOrbit(false);
       bridge.selectAndLoadStage(bridge.getSelectedStageId(), true);
+      this.tutorial.startIfFirstTime(this.touchMode);
       this.tryLockPointer();
     });
 
@@ -204,6 +229,7 @@ export class HUDController {
       if (st.isPaused) {
         this.sound.stopAllLoops();
         this.releasePointerLockSafe();
+        this.refreshQualityUI();
       } else {
         this.tryLockPointer();
       }
@@ -221,9 +247,11 @@ export class HUDController {
     const restartCurrent = () => {
       const st = bridge.getActiveStage();
       this.pauseOverlay.classList.add('hidden');
+      this.settingsOverlay.classList.add('hidden');
       this.resultOverlay.classList.add('hidden');
       this.caughtOverlay.classList.add('hidden');
       this.labOverlay.classList.add('hidden');
+      this.cam.setMenuOrbit(false);
       st.isPaused = false;
       st.isStarted = true;
       st.resetStage();
@@ -236,12 +264,16 @@ export class HUDController {
       st.isPaused = false;
       st.isStarted = false;
       this.sound.stopAllLoops();
+      this.tutorial.hide();
       this.pauseOverlay.classList.add('hidden');
+      this.settingsOverlay.classList.add('hidden');
       this.resultOverlay.classList.add('hidden');
       this.caughtOverlay.classList.add('hidden');
       this.labOverlay.classList.add('hidden');
       this.releasePointerLockSafe();
       this.clearInputs();
+      bridge.selectAndLoadStage(bridge.getSelectedStageId(), false);
+      this.cam.setMenuOrbit(true);
       this.refreshStartMenu();
       this.startOverlay.classList.remove('hidden');
     };
@@ -258,6 +290,7 @@ export class HUDController {
       this.sound.unlock();
       this.resultOverlay.classList.add('hidden');
       this.clearInputs();
+      this.cam.setMenuOrbit(false);
       bridge.selectAndLoadStage('bab2', true);
       this.tryLockPointer();
     });
@@ -282,6 +315,92 @@ export class HUDController {
       }
     });
 
+    // Settings modal navigation
+    const openSettings = (from: 'start' | 'pause') => {
+      this.settingsReturnTarget = from;
+      this.resetConfirmUntil = 0;
+      this.btnResetSave.classList.remove('confirming');
+      this.btnResetSave.textContent = '🗑 Reset Data Game';
+      this.startOverlay.classList.add('hidden');
+      this.pauseOverlay.classList.add('hidden');
+      this.refreshSettingsUI();
+      this.settingsOverlay.classList.remove('hidden');
+    };
+
+    document.getElementById('btn-start-settings')!.addEventListener('click', () => {
+      this.sound.unlock();
+      openSettings('start');
+    });
+    document.getElementById('btn-pause-settings')!.addEventListener('click', () => {
+      this.sound.unlock();
+      openSettings('pause');
+    });
+    document.getElementById('btn-settings-close')!.addEventListener('click', () => {
+      this.settingsOverlay.classList.add('hidden');
+      if (this.settingsReturnTarget === 'start') {
+        this.refreshStartMenu();
+        this.startOverlay.classList.remove('hidden');
+      } else {
+        this.refreshQualityUI();
+        this.pauseOverlay.classList.remove('hidden');
+      }
+    });
+
+    // Real-time settings controls
+    this.setSensInput.addEventListener('input', () => {
+      bridge.settings.setCameraSensitivity(parseFloat(this.setSensInput.value));
+    });
+    this.setInvertYBtn.addEventListener('click', () => {
+      bridge.settings.setInvertY(!bridge.settings.settings.invertY);
+    });
+    this.setAutoFollowBtn.addEventListener('click', () => {
+      bridge.settings.setMobileAutoFollow(!bridge.settings.settings.mobileAutoFollow);
+    });
+    this.setVolInput.addEventListener('input', () => {
+      const vol = parseInt(this.setVolInput.value, 10) / 100;
+      bridge.settings.setMasterVolume(vol);
+      if (vol > 0 && bridge.settings.settings.isMuted) {
+        bridge.settings.setMuted(false);
+      }
+    });
+    this.setMuteBtn.addEventListener('click', () => {
+      this.sound.unlock();
+      bridge.settings.setMuted(!bridge.settings.settings.isMuted);
+    });
+
+    this.btnReplayTutorial.addEventListener('click', () => {
+      this.tutorial.resetAndStart(this.touchMode);
+      if (this.settingsReturnTarget === 'pause') {
+        this.settingsOverlay.classList.add('hidden');
+        const st = bridge.getActiveStage();
+        st.isPaused = false;
+        this.tryLockPointer();
+      } else {
+        this.showToast('🔄 Tutorial aktif saat misi dimulai!');
+      }
+    });
+
+    this.btnResetSave.addEventListener('click', () => {
+      const now = performance.now() * 0.001;
+      if (now > this.resetConfirmUntil) {
+        this.resetConfirmUntil = now + 3.5;
+        this.btnResetSave.classList.add('confirming');
+        this.btnResetSave.textContent = '⚠ Yakin Reset? (Klik Lagi)';
+        return;
+      }
+      this.resetConfirmUntil = 0;
+      this.btnResetSave.classList.remove('confirming');
+      this.btnResetSave.textContent = '🗑 Reset Data Game';
+      bridge.progression.resetAllData();
+      bridge.settings.resetSettings();
+      this.tutorial.resetAndStart(this.touchMode);
+      if (!bridge.getActiveStage().isStarted) this.tutorial.hide();
+      bridge.getActiveStage().applyUpgrades();
+      this.refreshStartMenu();
+      this.refreshSettingsUI();
+      this.showToast('🗑 Seluruh data & DNA di-reset ke awal');
+    });
+
     this.btnTouchToggle.addEventListener('click', () => {
       this.setTouchMode(!this.touchMode);
       this.showToast(this.touchMode ? '📱 Mode Touch Diaktifkan' : '🖱 Mode Desktop Aktif');
@@ -295,8 +414,9 @@ export class HUDController {
       btn.addEventListener('click', () => {
         const mode = btn.dataset.qmode as QualityMode | undefined;
         if (!mode) return;
-        bridge.quality.setMode(mode);
+        bridge.settings.setGraphicsQuality(mode);
         this.refreshQualityUI();
+        this.refreshSettingsUI();
         this.showToast(`⚙ Kualitas Grafis: ${bridge.quality.getStatusSummary()}`);
       });
     }
@@ -304,8 +424,7 @@ export class HUDController {
 
     this.btnMute.addEventListener('click', () => {
       this.sound.unlock();
-      this.sound.setMuted(!this.sound.muted);
-      this.btnMute.textContent = this.sound.muted ? '🔇' : '🔊';
+      bridge.settings.setMuted(!bridge.settings.settings.isMuted);
     });
 
     document.addEventListener('pointerlockchange', () => {
@@ -322,11 +441,13 @@ export class HUDController {
           this.startOverlay.classList.contains('hidden') &&
           this.resultOverlay.classList.contains('hidden') &&
           this.caughtOverlay.classList.contains('hidden') &&
-          this.labOverlay.classList.contains('hidden');
+          this.labOverlay.classList.contains('hidden') &&
+          this.settingsOverlay.classList.contains('hidden');
 
         if (st.isStarted && !st.isPaused && !st.isStageCleared && noModalOpen) {
           st.isPaused = true;
           this.sound.stopAllLoops();
+          this.refreshQualityUI();
           this.pauseOverlay.classList.remove('hidden');
           this.clearInputs();
         }
@@ -335,6 +456,10 @@ export class HUDController {
 
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Escape' || e.code === 'KeyP') {
+        if (!this.settingsOverlay.classList.contains('hidden')) {
+          document.getElementById('btn-settings-close')!.click();
+          return;
+        }
         const st = bridge.getActiveStage();
         const noModalOpen =
           this.startOverlay.classList.contains('hidden') &&
@@ -349,30 +474,55 @@ export class HUDController {
       }
       if (e.code === 'KeyM') {
         this.sound.unlock();
-        this.sound.setMuted(!this.sound.muted);
-        this.btnMute.textContent = this.sound.muted ? '🔇' : '🔊';
+        bridge.settings.setMuted(!bridge.settings.settings.isMuted);
       }
     });
   }
 
+  public refreshSettingsUI(): void {
+    if (!this.bridge) return;
+    const s = this.bridge.settings.settings;
+    this.setSensInput.value = s.cameraSensitivity.toFixed(1);
+    this.setSensVal.textContent = `${s.cameraSensitivity.toFixed(1)}x`;
+
+    this.setInvertYBtn.textContent = s.invertY ? 'ON' : 'OFF';
+    this.setInvertYBtn.classList.toggle('active', s.invertY);
+
+    this.setAutoFollowBtn.textContent = s.mobileAutoFollow ? 'ON' : 'OFF';
+    this.setAutoFollowBtn.classList.toggle('active', s.mobileAutoFollow);
+
+    const volPct = Math.round(s.masterVolume * 100);
+    this.setVolInput.value = String(volPct);
+    this.setVolVal.textContent = `${volPct}%`;
+    this.setMuteBtn.textContent = s.isMuted ? '🔇' : '🔊';
+    this.setMuteBtn.classList.toggle('active', !s.isMuted);
+    this.btnMute.textContent = s.isMuted ? '🔇' : '🔊';
+
+    this.refreshQualityUI();
+  }
+
   public refreshStartMenu(): void {
     if (!this.bridge) return;
-    const { dna, bestStarsByStage } = this.bridge.progression.save;
+    const { dna, bestStarsByStage, bestMomentum } = this.bridge.progression.save;
     const selected = this.bridge.getSelectedStageId();
 
     this.startSaveSummary.textContent = `MUTATION DNA: ${dna}`;
     this.bab1StarsEl.textContent = [1, 2, 3].map((i) => (i <= bestStarsByStage.bab1 ? '★' : '☆')).join(' ');
+    this.bab1MomentumEl.textContent = `Rekor Momentum: ${bestMomentum}%`;
+
     this.bab2StarsEl.textContent = [1, 2, 3].map((i) => (i <= bestStarsByStage.bab2 ? '★' : '☆')).join(' ');
+    const bab2Unlocked = bestStarsByStage.bab1 > 0 || bestStarsByStage.bab2 > 0;
+    this.bab2StatusTagEl.textContent = bab2Unlocked ? 'TERBUKA' : 'MODE UJI COBA';
 
     this.btnSelectBab1.classList.toggle('active', selected === 'bab1');
     this.btnSelectBab2.classList.toggle('active', selected === 'bab2');
 
     if (selected === 'bab1') {
       this.startStageDesc.innerHTML =
-        'Koko lapar di dapur rumah. Merayap 360°, sabotase <b>3 target keisengan</b>, dan bersembunyi di celah aman saat dikejar Ibu!';
+        'Koko lapar di dapur rumah tertutup. Merayap 360°, sabotase <b>3 target keisengan</b>, dan sembunyi di celah aman!';
       this.startChecklist.innerHTML =
         '<div>1. <b>Curi Cemilan</b> — Sayur di Meja Dapur (Talenan)</div>' +
-        '<div>2. <b>Sabotase Sup</b> — Wajan / Panci di Kompor Gas</div>' +
+        '<div>2. <b>Sabotase Sup</b> — Panci Sup di Kompor Gas Melon</div>' +
         '<div>3. <b>Pesta di Meja</b> — Hidangan di Meja Makan</div>';
     } else {
       this.startStageDesc.innerHTML =
@@ -524,36 +674,55 @@ export class HUDController {
     if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) kx -= 1;
 
     const kLen = Math.hypot(kx, ky);
-    let moveX = this.mobileMoveX;
-    let moveY = this.mobileMoveY;
+    let moveX = this.touchCtrl.moveX;
+    let moveY = this.touchCtrl.moveY;
     if (kLen > 0) {
       moveX = kx / kLen;
       moveY = ky / kLen;
     }
 
+    const touchTriggers = this.touchCtrl.consumeTriggers();
     const state: InputState = {
       moveX,
       moveY,
-      flyHeld: this.mobileFlyHeld || this.keys.has('Space'),
-      flyJustPressed: this.flyJustPressed,
-      glideHeld: this.mobileGlideHeld || this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'),
-      dodgeJustPressed: this.dodgeJustPressed,
-      actionHeld: this.mobileActionHeld || this.keys.has('KeyE') || this.keys.has('KeyF'),
+      flyHeld: this.touchCtrl.flyHeld || this.keys.has('Space'),
+      flyJustPressed: this.keyFlyJustPressed || touchTriggers.flyJustPressed,
+      glideHeld:
+        this.touchCtrl.glideHeld ||
+        this.keys.has('ShiftLeft') ||
+        this.keys.has('ShiftRight'),
+      dodgeJustPressed: this.keyDodgeJustPressed || touchTriggers.dodgeJustPressed,
+      actionHeld: this.touchCtrl.actionHeld || this.keys.has('KeyE') || this.keys.has('KeyF'),
     };
 
-    this.flyJustPressed = false;
-    this.dodgeJustPressed = false;
+    this.keyFlyJustPressed = false;
+    this.keyDodgeJustPressed = false;
     return state;
   }
 
   public updateHUD(
+    dt: number,
     time: number,
     snap: HudSnapshot,
     koko: KokoController,
+    input: InputState,
     totalDna: number,
     isPaused: boolean,
     isStarted: boolean
   ): void {
+    // Keep HUD & world overlays hidden when browsing the Live 3D Backdrop Main Menu
+    this.hudLayer.classList.toggle('hidden', !isStarted);
+    this.worldOverlays.classList.toggle('hidden', !isStarted);
+
+    if (!isStarted) {
+      this.flashbangGlare.classList.add('hidden');
+      this.dangerVignette.classList.add('hidden');
+      this.threatIndicator.classList.add('hidden');
+      return;
+    }
+
+    this.touchCtrl.updateInertia(dt, this.isPointerLocked);
+
     this.objectiveChapter.textContent = snap.chapterLabel;
     this.objectiveTitle.textContent = snap.objectiveTitle;
     this.objectiveHint.textContent = snap.objectiveHint;
@@ -582,11 +751,11 @@ export class HUDController {
     this.detectionFill.style.background = snap.threatColor;
 
     this.surfaceStatus.textContent = koko.getSurfaceLabel() + snap.extraStatusTag;
-    this.staminaFill.style.width = `${Math.round((koko.stamina / koko.maxStamina) * 100)}%`;
+    const staminaRatio = koko.stamina / Math.max(1, koko.maxStamina);
+    this.staminaFill.style.width = `${Math.round(staminaRatio * 100)}%`;
     this.dnaHudBadge.textContent = `${totalDna} DNA`;
     if (isPaused) this.refreshQualityUI();
 
-    // Monitor Flashbang Glare overlay
     const glareOn = Boolean(this.bridge?.isFlashbangGlare()) && isStarted && !isPaused;
     this.flashbangGlare.classList.toggle('hidden', !glareOn);
 
@@ -598,29 +767,38 @@ export class HUDController {
       !snap.isStageCleared;
     this.pointerLockHint.classList.toggle('hidden', !showLockHint);
 
-    // Contextual Sabotage Prompt
-    if (snap.nearbyProp && !snap.nearbyProp.isRuined) {
-      const prog = Math.min(
-        1,
-        snap.nearbyProp.currentProgress / snap.nearbyProp.requiredHoldDuration
-      );
-      if (this.touchMode) {
-        this.btnAction.classList.remove('hidden');
-        this.btnActionLabel.textContent = snap.nearbyProp.actionVerb;
-        const circ = 175.9;
-        this.actionRing.style.strokeDashoffset = `${circ * (1 - prog)}`;
-        this.desktopActionPrompt.classList.add('hidden');
-      } else {
-        this.btnAction.classList.add('hidden');
-        this.desktopActionPrompt.classList.remove('hidden');
-        this.desktopActionText.textContent = `Tahan [E / F] ${snap.nearbyProp.actionVerb} — ${snap.nearbyProp.targetName}`;
-        this.desktopActionFill.style.width = `${Math.round(prog * 100)}%`;
-      }
+    const hasNearbyTarget = Boolean(snap.nearbyProp && !snap.nearbyProp.isRuined);
+    const propProgress = hasNearbyTarget && snap.nearbyProp
+      ? Math.min(1, snap.nearbyProp.currentProgress / snap.nearbyProp.requiredHoldDuration)
+      : 0;
+
+    if (hasNearbyTarget && snap.nearbyProp && !this.touchMode) {
+      this.desktopActionPrompt.classList.remove('hidden');
+      this.desktopActionText.textContent = `Tahan [E / F] ${snap.nearbyProp.actionVerb} — ${snap.nearbyProp.targetName}`;
+      this.desktopActionFill.style.width = `${Math.round(propProgress * 100)}%`;
     } else {
-      this.btnAction.classList.add('hidden');
-      this.actionRing.style.strokeDashoffset = '175.9';
       this.desktopActionPrompt.classList.add('hidden');
     }
+
+    this.touchCtrl.updateButtonsVisual({
+      staminaRatio,
+      dodgeCooldownRatio: koko.dodgeCooldownRatio,
+      isAirborne: koko.state === 'Flying' || koko.state === 'Gliding',
+      hasContextualAction: hasNearbyTarget,
+      contextualLabel: snap.nearbyProp?.actionVerb ?? 'AKSI',
+      contextualProgress: propProgress,
+      isInHidingSpot: Boolean(snap.activeHidingSpot),
+    });
+
+    this.tutorial.update(
+      dt,
+      isStarted && !isPaused && !snap.isStageCleared,
+      this.touchMode,
+      input,
+      koko.state,
+      hasNearbyTarget,
+      Boolean(snap.activeHidingSpot)
+    );
 
     // Windup Danger Vignette & Directional Arrow
     if (snap.isWindingUp && !isPaused && !snap.isStageCleared) {
@@ -731,22 +909,18 @@ export class HUDController {
 
   private clearInputs(): void {
     this.keys.clear();
-    this.mobileMoveX = 0;
-    this.mobileMoveY = 0;
-    this.mobileFlyHeld = false;
-    this.mobileGlideHeld = false;
-    this.mobileActionHeld = false;
-    this.flyJustPressed = false;
-    this.dodgeJustPressed = false;
+    this.keyFlyJustPressed = false;
+    this.keyDodgeJustPressed = false;
+    this.touchCtrl.resetAllTouches();
   }
 
-  private bindInputs(): void {
+  private bindKeyboardAndLock(): void {
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Space' && !this.keys.has('Space')) {
-        this.flyJustPressed = true;
+        this.keyFlyJustPressed = true;
       }
       if (e.code === 'KeyQ' && !this.keys.has('KeyQ')) {
-        this.dodgeJustPressed = true;
+        this.keyDodgeJustPressed = true;
       }
       this.keys.add(e.code);
     });
@@ -757,164 +931,11 @@ export class HUDController {
 
     window.addEventListener('blur', () => this.clearInputs());
 
-    window.addEventListener(
-      'touchstart',
-      () => {
-        if (!this.touchMode) {
-          this.setTouchMode(true);
-        }
-      },
-      { passive: true }
-    );
-
-    this.lookZone.addEventListener('pointerdown', (e) => {
-      this.sound.unlock();
-      const st = this.bridge?.getActiveStage();
-      if (
-        e.pointerType === 'mouse' &&
-        !this.touchMode &&
-        !this.isPointerLocked &&
-        st?.isStarted &&
-        !st?.isPaused &&
-        !st?.isStageCleared
-      ) {
-        this.tryLockPointer();
-      }
-      if (this.pointerLookId !== null) return;
-      this.pointerLookId = e.pointerId;
-      this.lastLookX = e.clientX;
-      this.lastLookY = e.clientY;
-      this.cam.onSwipeStart();
-    });
-
     document.addEventListener('mousemove', (e) => {
       if (!this.isPointerLocked) return;
       const st = this.bridge?.getActiveStage();
       if (!st?.isStarted || st.isPaused) return;
       this.cam.addSwipeDelta(e.movementX, e.movementY);
     });
-
-    window.addEventListener('pointermove', (e) => {
-      if (this.isPointerLocked) return;
-      if (e.pointerId === this.pointerLookId) {
-        const dx = e.clientX - this.lastLookX;
-        const dy = e.clientY - this.lastLookY;
-        this.lastLookX = e.clientX;
-        this.lastLookY = e.clientY;
-        this.cam.addSwipeDelta(dx, dy);
-      }
-    });
-
-    const endLook = (e: PointerEvent) => {
-      if (e.pointerId === this.pointerLookId) {
-        this.pointerLookId = null;
-        this.cam.onSwipeEnd();
-      }
-    };
-    window.addEventListener('pointerup', endLook);
-    window.addEventListener('pointercancel', endLook);
-
-    const joyKnob = document.getElementById('joystick-knob')!;
-    const maxRadius = 46;
-
-    const updateJoy = (clientX: number, clientY: number) => {
-      const rect = this.joystickZone.getBoundingClientRect();
-      const cx = rect.left + rect.width * 0.5;
-      const cy = rect.top + rect.height * 0.5;
-      let dx = clientX - cx;
-      let dy = clientY - cy;
-      const dist = Math.hypot(dx, dy);
-      if (dist > maxRadius) {
-        dx = (dx / dist) * maxRadius;
-        dy = (dy / dist) * maxRadius;
-      }
-      joyKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
-      this.mobileMoveX = dx / maxRadius;
-      this.mobileMoveY = -dy / maxRadius;
-    };
-
-    this.joystickZone.addEventListener('pointerdown', (e) => {
-      e.stopPropagation();
-      this.sound.unlock();
-      this.joyPointerId = e.pointerId;
-      this.joystickZone.setPointerCapture(e.pointerId);
-      updateJoy(e.clientX, e.clientY);
-    });
-
-    this.joystickZone.addEventListener('pointermove', (e) => {
-      if (e.pointerId !== this.joyPointerId) return;
-      updateJoy(e.clientX, e.clientY);
-    });
-
-    const resetJoy = (e: PointerEvent) => {
-      if (e.pointerId !== this.joyPointerId) return;
-      this.joyPointerId = null;
-      this.mobileMoveX = 0;
-      this.mobileMoveY = 0;
-      joyKnob.style.transform = 'translate(-50%, -50%)';
-    };
-    this.joystickZone.addEventListener('pointerup', resetJoy);
-    this.joystickZone.addEventListener('pointercancel', resetJoy);
-
-    const bindHoldBtn = (
-      id: string,
-      onStart: () => void,
-      onEnd: () => void
-    ) => {
-      const el = document.getElementById(id)!;
-      el.addEventListener('pointerdown', (e) => {
-        e.stopPropagation();
-        this.sound.unlock();
-        el.classList.add('active');
-        onStart();
-      });
-      const stop = (e: PointerEvent) => {
-        e.stopPropagation();
-        el.classList.remove('active');
-        onEnd();
-      };
-      el.addEventListener('pointerup', stop);
-      el.addEventListener('pointercancel', stop);
-      el.addEventListener('pointerleave', stop);
-    };
-
-    bindHoldBtn(
-      'btn-fly',
-      () => {
-        if (!this.mobileFlyHeld) this.flyJustPressed = true;
-        this.mobileFlyHeld = true;
-      },
-      () => {
-        this.mobileFlyHeld = false;
-      }
-    );
-
-    bindHoldBtn(
-      'btn-glide',
-      () => {
-        this.mobileGlideHeld = true;
-      },
-      () => {
-        this.mobileGlideHeld = false;
-      }
-    );
-
-    bindHoldBtn(
-      'btn-dodge',
-      () => {
-        this.dodgeJustPressed = true;
-      },
-      () => {}
-    );
-
-    bindHoldBtn(
-      'btn-action',
-      () => {
-        this.mobileActionHeld = true;
-      },
-      () => {
-        this.mobileActionHeld = false;
-      }
-    );
   }
 }
