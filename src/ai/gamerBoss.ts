@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { ComputedStats, GamerState, HidingSpot, WORLD_SCALE as S } from '../types';
 import { GamerRig } from '../entities/gamerModel';
 import { GamerRoomData } from '../world/gamerRoomLevel';
-import { SoundEngine } from '../audio/soundEngine';
+import { ProceduralAudioEngine } from '../audio/ProceduralAudioEngine';
 
 export class GamerBossController {
   public state: GamerState = 'HEADSET_ON';
@@ -21,6 +21,8 @@ export class GamerBossController {
   private stateTimer = 0;
   private inspectPhase = 0;
   private stealthFactor = 1.0;
+  private lastKokoPos = new THREE.Vector3();
+  private lastCamFwd = new THREE.Vector3(0, 0, 1);
 
   private readonly visionConeMesh: THREE.Mesh;
   private readonly raycaster = new THREE.Raycaster();
@@ -33,7 +35,7 @@ export class GamerBossController {
   constructor(
     public readonly rig: GamerRig,
     private readonly room: GamerRoomData,
-    private readonly sound: SoundEngine,
+    private readonly sound: ProceduralAudioEngine,
     private readonly onKokoHit: (reason: string) => void
   ) {
     // Vision cone mesh on floor
@@ -82,8 +84,14 @@ export class GamerBossController {
     this.room.chairGroup.rotation.set(0, 0, 0);
   }
 
-  public triggerDrinkChoke(): void {
-    this.sound.playDrinkChoke();
+  public triggerDrinkChoke(kokoPos: THREE.Vector3): void {
+    const { pan, gain } = this.sound.computeSpatialPanAndGain(
+      this.rig.root.position,
+      kokoPos,
+      44,
+      this.lastCamFwd
+    );
+    this.sound.playVocalReaction('gamer', 'choke', pan, gain);
     this.state = 'RELAXED';
     this.isSeated = true;
     this.stateTimer = 0;
@@ -91,8 +99,14 @@ export class GamerBossController {
     this.activeDialogue = 'UHUKK!! Kok minumannya bau aneh?! Apa itu di kiri meja?!';
   }
 
-  public triggerLanCutLag(): void {
-    this.sound.playDeskSlam();
+  public triggerLanCutLag(kokoPos: THREE.Vector3): void {
+    const { pan, gain } = this.sound.computeSpatialPanAndGain(
+      this.rig.root.position,
+      kokoPos,
+      44,
+      this.lastCamFwd
+    );
+    this.sound.playVocalReaction('gamer', 'tilted', pan, gain);
     this.state = 'HEADSET_OFF';
     this.isSeated = false;
     this.stateTimer = 0;
@@ -100,13 +114,19 @@ export class GamerBossController {
     this.activeDialogue = 'WOOOY PING 999ms!! KABEL LAN GUE PUTUS?!';
   }
 
-  public triggerPanicDefeat(): void {
+  public triggerPanicDefeat(kokoPos: THREE.Vector3): void {
     this.state = 'PANIC_DEFEATED';
     this.isSeated = false;
     this.isTelegraphingSwat = false;
     this.isSwingingSwat = false;
     this.activeDialogue = 'MAMA!! ADA KECOAK TERBANG DI MUKA GUE!! AMPUNNN!!';
-    this.sound.playIbuPanic();
+    const { pan, gain } = this.sound.computeSpatialPanAndGain(
+      this.rig.root.position,
+      kokoPos,
+      44,
+      this.lastCamFwd
+    );
+    this.sound.playVocalReaction('gamer', 'panic', pan, gain);
     // Topple gaming chair backward
     this.room.chairGroup.rotation.x = -1.38;
     this.room.chairGroup.position.z = this.room.gamerChairPos.z - 0.35 * S;
@@ -120,11 +140,14 @@ export class GamerBossController {
     dt: number,
     time: number,
     kokoPos: THREE.Vector3,
+    camFwd: THREE.Vector3,
     isKokoCrawlingMoving: boolean,
     isKokoFlying: boolean,
     isKokoInvincible: boolean,
     activeHidingSpot: HidingSpot | null
   ): void {
+    this.lastKokoPos.copy(kokoPos);
+    this.lastCamFwd.copy(camFwd);
     if (this.state === 'PANIC_DEFEATED') {
       this.visionConeMesh.visible = false;
       const doorExit = new THREE.Vector3(-2.2 * S, 0, -2.75 * S);
@@ -226,7 +249,13 @@ export class GamerBossController {
             this.swatSwingTimer = 0;
             this.swatHitDealt = false;
             this.activeDialogue = 'RASAIN RAKET NYAMUK TEGANGAN TINGGI!!';
-            this.sound.playBroomSweep();
+            const { pan, gain } = this.sound.computeSpatialPanAndGain(
+              this.rig.root.position,
+              kokoPos,
+              42,
+              this.lastCamFwd
+            );
+            this.sound.playSwatterSnap(pan, gain);
           }
         } else if (this.isSwingingSwat) {
           this.swatSwingTimer += dt;
@@ -270,7 +299,13 @@ export class GamerBossController {
     this.swatTelegraphTimer = 0;
     this.isSwingingSwat = false;
     this.activeDialogue = 'AWAS LU!! GUE SETRUM PAKE RAKET NYAMUK!!';
-    this.sound.playElectricBuzz();
+    const { pan, gain } = this.sound.computeSpatialPanAndGain(
+      this.rig.root.position,
+      this.lastKokoPos,
+      42,
+      this.lastCamFwd
+    );
+    this.sound.playSwatterTelegraph(pan, gain);
   }
 
   private processPerception(

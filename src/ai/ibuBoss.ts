@@ -12,7 +12,7 @@ import {
 } from '../types';
 import { IbuRig } from '../entities/ibuModel';
 import { KitchenLevelData } from '../world/kitchenLevel';
-import { SoundEngine } from '../audio/soundEngine';
+import { ProceduralAudioEngine } from '../audio/ProceduralAudioEngine';
 import { Palette, createToonMaterial } from '../style/palette';
 
 interface SandalShot {
@@ -37,6 +37,8 @@ export class IbuBossController {
   public readonly windupDuration = 1.0;
 
   private stealthFactor = 1.0;
+  private lastKokoPos = new THREE.Vector3();
+  private lastCamFwd = new THREE.Vector3(0, 0, 1);
 
   private currentStation: KitchenStation = 'MejaDapur';
   private targetStation: KitchenStation = 'MejaDapur';
@@ -94,7 +96,7 @@ export class IbuBossController {
     private readonly scene: THREE.Scene,
     public readonly rig: IbuRig,
     private readonly level: KitchenLevelData,
-    private readonly sound: SoundEngine,
+    private readonly sound: ProceduralAudioEngine,
     private readonly onPropDiscovered: (prop: InteractiveProp) => void,
     private readonly onKokoHit: (reason: string) => void
   ) {
@@ -189,31 +191,38 @@ export class IbuBossController {
     if (this.bossState === state) return;
     this.bossState = state;
 
+    const { pan, gain } = this.sound.computeSpatialPanAndGain(
+      this.rig.root.position,
+      this.lastKokoPos,
+      46,
+      this.lastCamFwd
+    );
+
     switch (state) {
       case 'RoutineIdle':
         this.rig.setExpression(this.habit === 'CookingTaste' ? 'Tasting' : 'NeutralJudes');
         break;
       case 'SuspiciousAlert':
         this.rig.setExpression('Suspicious');
-        this.sound.playIbuAlert();
+        this.sound.playVocalReaction('ibu', 'alert', pan, gain);
         break;
       case 'ShockedFreeze':
         this.rig.setExpression('Shocked');
-        this.sound.playIbuGasp();
+        this.sound.playVocalReaction('ibu', 'alert', pan, Math.min(1, gain * 1.15));
         break;
       case 'WindupAttack':
         this.rig.setExpression('AngryCombat');
-        this.sound.playWindupWarning();
+        this.sound.playVocalReaction('ibu', 'angry', pan, gain);
         break;
       case 'CariSapu':
       case 'AngerCombat':
       case 'Mengamuk':
         this.rig.setExpression('AngryCombat');
-        this.sound.playIbuAnger();
+        this.sound.playVocalReaction('ibu', 'angry', pan, gain);
         break;
       case 'Marah':
         this.rig.setExpression('Shocked');
-        this.sound.playIbuAnger();
+        this.sound.playVocalReaction('ibu', 'angry', pan, gain);
         break;
       case 'MencariKoko':
       case 'MemeriksaSembunyi':
@@ -221,7 +230,7 @@ export class IbuBossController {
         break;
       case 'PanicDefeated':
         this.rig.setExpression('DefeatedPanic');
-        this.sound.playIbuPanic();
+        this.sound.playVocalReaction('ibu', 'surrender', pan, gain);
         break;
     }
   }
@@ -230,10 +239,13 @@ export class IbuBossController {
     dt: number,
     time: number,
     kokoPos: THREE.Vector3,
+    camFwd: THREE.Vector3,
     isKokoFlying: boolean,
     isKokoInvincible: boolean,
     activeHidingSpot: HidingSpot | null
   ): void {
+    this.lastKokoPos.copy(kokoPos);
+    this.lastCamFwd.copy(camFwd);
     this.updateSandals(dt, kokoPos, isKokoInvincible);
 
     if (this.bossState === 'PanicDefeated') {
@@ -596,7 +608,13 @@ export class IbuBossController {
         this.broomHitDealt = false;
         this.broomTelegraphMesh.visible = true;
         this.activeDialogue = 'Jangan deket-deket meja gue!!';
-        this.sound.playBroomSweep();
+        const { pan, gain } = this.sound.computeSpatialPanAndGain(
+          this.rig.root.position,
+          kokoPos,
+          42,
+          this.lastCamFwd
+        );
+        this.sound.playBroomSwing(true, pan, gain);
       } else {
         this.broomTelegraphMesh.visible = false;
         this.throwSandal(kokoPos);
@@ -694,7 +712,13 @@ export class IbuBossController {
         );
       } else {
         this.activeDialogue = 'KETEMU DI BALIK PERABOT! RASAIN SAPU GUE!';
-        this.sound.playBroomSweep();
+        const { pan, gain } = this.sound.computeSpatialPanAndGain(
+          this.rig.root.position,
+          kokoPos,
+          42,
+          this.lastCamFwd
+        );
+        this.sound.playBroomSwing(true, pan, gain);
         if (spot.isKokoInside && !isKokoInvincible && this.rig.root.position.distanceTo(kokoPos) < 12) {
           this.onKokoHit(`Ibu menjangkau persembunyian berisiko (${spot.name})!`);
           return;
@@ -706,7 +730,13 @@ export class IbuBossController {
 
   private throwSandal(kokoPos: THREE.Vector3): void {
     this.activeDialogue = 'Nih makan sandal Swallow!!';
-    this.sound.playSandalThrow();
+    const { pan, gain } = this.sound.computeSpatialPanAndGain(
+      this.rig.root.position,
+      kokoPos,
+      42,
+      this.lastCamFwd
+    );
+    this.sound.playSandalThrow(pan, gain);
 
     const mesh = new THREE.Group();
     const sole = new THREE.Mesh(

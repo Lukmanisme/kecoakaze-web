@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RgbMood } from '../types';
-import { SoundEngine } from '../audio/soundEngine';
+import { ProceduralAudioEngine } from '../audio/ProceduralAudioEngine';
 
 export class RgbLightingSystem {
   public mood: RgbMood = 'chill';
@@ -22,7 +22,7 @@ export class RgbLightingSystem {
     deskPos: THREE.Vector3,
     pcPos: THREE.Vector3,
     monitorPos: THREE.Vector3,
-    private readonly sound: SoundEngine
+    private readonly sound: ProceduralAudioEngine
   ) {
     this.ambientLight = new THREE.HemisphereLight(0x6e78c8, 0x1c1c2a, 0.85);
     scene.add(this.ambientLight);

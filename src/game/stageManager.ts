@@ -12,7 +12,7 @@ import { KitchenLevelData } from '../world/kitchenLevel';
 import { KokoController } from '../physics/kokoPhysics';
 import { IbuBossController } from '../ai/ibuBoss';
 import { SurfaceAlignedCamera } from '../camera/surfaceCamera';
-import { SoundEngine } from '../audio/soundEngine';
+import { ProceduralAudioEngine } from '../audio/ProceduralAudioEngine';
 import { ProgressionManager } from './progression';
 import { ParticleFXManager } from '../effects/particleFx';
 
@@ -56,7 +56,7 @@ export class KitchenStageManager implements StageController {
     private readonly koko: KokoController,
     private readonly ibu: IbuBossController,
     private readonly cam: SurfaceAlignedCamera,
-    private readonly sound: SoundEngine,
+    private readonly sound: ProceduralAudioEngine,
     public readonly progression: ProgressionManager,
     private readonly particles: ParticleFXManager,
     private readonly callbacks: StageCallbacks
@@ -76,6 +76,9 @@ export class KitchenStageManager implements StageController {
         updraftZone: this.level.updraftZone,
       });
       this.cam.configureLevel(this.level.obstacles);
+      this.sound.setStoveAmbience(true);
+    } else {
+      this.sound.stopAllLoops();
     }
   }
 
@@ -176,9 +179,8 @@ export class KitchenStageManager implements StageController {
 
   public handleKokoHit(reason: string): void {
     if (this.isFinaleActive || this.isStageCleared || this.koko.effectiveInvincible) return;
-    this.sound.setCrawlActive(false);
-    this.sound.setFlightBuzz(false, 0);
-    this.sound.playIbuAnger();
+    this.sound.stopAllLoops();
+    this.sound.playVocalReaction('ibu', 'angry');
     this.isPaused = true;
     this.callbacks.onKokoCaught(reason);
   }
@@ -194,6 +196,7 @@ export class KitchenStageManager implements StageController {
     this.animateUpdraftParticles(dt);
 
     if (this.isPaused || !this.isStarted || this.isStageCleared) {
+      this.sound.stopAllLoops();
       this.cam.update(
         dt,
         this.koko.position,
@@ -203,6 +206,7 @@ export class KitchenStageManager implements StageController {
       );
       return;
     }
+    this.sound.setStoveAmbience(true);
 
     this.koko.update(dt, time, input, camFwd, camUp);
 
@@ -244,8 +248,10 @@ export class KitchenStageManager implements StageController {
         this.lastActionTime = time;
         this.actionTickSoundCooldown -= dt;
         if (this.actionTickSoundCooldown <= 0) {
-          this.actionTickSoundCooldown = 0.18;
-          this.sound.playActionTick();
+          this.actionTickSoundCooldown = 0.16;
+          this.sound.playSabotageProgress(
+            this.nearbyProp.currentProgress / Math.max(0.01, this.nearbyProp.requiredHoldDuration)
+          );
         }
         if (this.nearbyProp.currentProgress >= this.nearbyProp.requiredHoldDuration) {
           this.completeSabotage(this.nearbyProp);
@@ -267,6 +273,7 @@ export class KitchenStageManager implements StageController {
       dt,
       time,
       this.koko.position,
+      camFwd,
       this.koko.state === 'Flying' || this.koko.state === 'Gliding',
       this.koko.effectiveInvincible,
       this.activeHidingSpot
@@ -294,8 +301,7 @@ export class KitchenStageManager implements StageController {
           'PanicDefeated',
           'AMPUNNN DAPUR GUE HANCURR TOTAL!! SANA KELUARR KECOAKKK!!'
         );
-        this.sound.setCrawlActive(false);
-        this.sound.setFlightBuzz(false, 0);
+        this.sound.stopAllLoops();
         this.sound.playStageClear();
 
         const clearBaseDna = 500;
@@ -320,7 +326,7 @@ export class KitchenStageManager implements StageController {
     const kind = prop.type === 0 ? 'veg' : prop.type === 1 ? 'soup' : 'table';
     this.particles.spawnBurst(kind, prop.position);
     this.cam.triggerShake(0.18, 0.25);
-    this.sound.playPrankComplete();
+    this.sound.playSabotageComplete();
 
     const distToIbu = this.koko.position.distanceTo(this.ibu.rig.root.position);
     if (distToIbu <= 2.9 * S) {

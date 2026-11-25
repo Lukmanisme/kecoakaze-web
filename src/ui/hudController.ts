@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { HudSnapshot, InputState, StageController, StageId } from '../types';
 import { KokoController } from '../physics/kokoPhysics';
 import { SurfaceAlignedCamera } from '../camera/surfaceCamera';
-import { SoundEngine } from '../audio/soundEngine';
+import { ProceduralAudioEngine } from '../audio/ProceduralAudioEngine';
 import { MAX_UPGRADE_LEVEL, ProgressionManager, UPGRADE_DEFS } from '../game/progression';
 
 export interface StageBridge {
@@ -114,10 +114,11 @@ export class HUDController {
 
   constructor(
     private readonly cam: SurfaceAlignedCamera,
-    private readonly sound: SoundEngine
+    private readonly sound: ProceduralAudioEngine
   ) {
     this.touchMode = this.detectInitialTouch();
     this.applyTouchModeUI();
+    this.btnMute.textContent = this.sound.muted ? '🔇' : '🔊';
     this.bindInputs();
   }
 
@@ -195,6 +196,7 @@ export class HUDController {
       this.pauseOverlay.classList.toggle('hidden', !st.isPaused);
       this.clearInputs();
       if (st.isPaused) {
+        this.sound.stopAllLoops();
         this.releasePointerLockSafe();
       } else {
         this.tryLockPointer();
@@ -227,6 +229,7 @@ export class HUDController {
       const st = bridge.getActiveStage();
       st.isPaused = false;
       st.isStarted = false;
+      this.sound.stopAllLoops();
       this.pauseOverlay.classList.add('hidden');
       this.resultOverlay.classList.add('hidden');
       this.caughtOverlay.classList.add('hidden');
@@ -306,6 +309,7 @@ export class HUDController {
 
         if (st.isStarted && !st.isPaused && !st.isStageCleared && noModalOpen) {
           st.isPaused = true;
+          this.sound.stopAllLoops();
           this.pauseOverlay.classList.remove('hidden');
           this.clearInputs();
         }
@@ -444,6 +448,7 @@ export class HUDController {
 
   public showCaught(reason: string): void {
     this.clearInputs();
+    this.sound.stopAllLoops();
     this.releasePointerLockSafe();
     this.caughtReason.textContent = `${reason} Semua progres stage di-reset ke awal.`;
     this.caughtOverlay.classList.remove('hidden');
@@ -457,6 +462,7 @@ export class HUDController {
     totalDna: number
   ): void {
     this.clearInputs();
+    this.sound.stopAllLoops();
     this.releasePointerLockSafe();
 
     if (stageId === 'bab1') {

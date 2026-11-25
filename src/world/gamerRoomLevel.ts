@@ -9,7 +9,7 @@ import { createToonMaterial } from '../style/palette';
 import { PropBuildContext, addBox, addCyl, addSph } from './kitchenProps';
 import { OscillatingFan } from './oscillatingFan';
 import { RgbLightingSystem } from './rgbLighting';
-import { SoundEngine } from '../audio/soundEngine';
+import { ProceduralAudioEngine } from '../audio/ProceduralAudioEngine';
 
 const ROOM_W = 8.0;
 const ROOM_D = 6.5;
@@ -35,7 +35,7 @@ export interface GamerRoomData {
 
 export function buildGamerRoomLevel(
   scene: THREE.Scene,
-  sound: SoundEngine
+  sound: ProceduralAudioEngine
 ): GamerRoomData {
   const root = new THREE.Group();
   root.name = 'Environment_GamerRoom';

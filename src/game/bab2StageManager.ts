@@ -12,7 +12,7 @@ import { GamerRoomData } from '../world/gamerRoomLevel';
 import { KokoController } from '../physics/kokoPhysics';
 import { GamerBossController } from '../ai/gamerBoss';
 import { SurfaceAlignedCamera } from '../camera/surfaceCamera';
-import { SoundEngine } from '../audio/soundEngine';
+import { ProceduralAudioEngine } from '../audio/ProceduralAudioEngine';
 import { ProgressionManager } from './progression';
 import { ParticleFXManager } from '../effects/particleFx';
 import { StageCallbacks } from './stageManager';
@@ -44,7 +44,7 @@ export class GamerRoomStageManager implements StageController {
     private readonly koko: KokoController,
     private readonly gamer: GamerBossController,
     private readonly cam: SurfaceAlignedCamera,
-    private readonly sound: SoundEngine,
+    private readonly sound: ProceduralAudioEngine,
     public readonly progression: ProgressionManager,
     private readonly particles: ParticleFXManager,
     private readonly callbacks: StageCallbacks
@@ -65,6 +65,8 @@ export class GamerRoomStageManager implements StageController {
         bounds: this.room.bounds,
       });
       this.cam.configureLevel(this.room.obstacles, this.room.bounds);
+    } else {
+      this.sound.stopAllLoops();
     }
   }
 
@@ -126,9 +128,8 @@ export class GamerRoomStageManager implements StageController {
 
   public handleKokoHit(reason: string): void {
     if (this.isFinaleActive || this.isStageCleared || this.koko.effectiveInvincible) return;
-    this.sound.setCrawlActive(false);
-    this.sound.setFlightBuzz(false, 0);
-    this.sound.playIbuAnger();
+    this.sound.stopAllLoops();
+    this.sound.playVocalReaction('gamer', 'tilted');
     this.isPaused = true;
     this.callbacks.onKokoCaught(reason);
   }
@@ -143,6 +144,7 @@ export class GamerRoomStageManager implements StageController {
     this.particles.update(dt);
 
     if (this.isPaused || !this.isStarted || this.isStageCleared) {
+      this.sound.stopAllLoops();
       this.cam.update(
         dt,
         this.koko.position,
@@ -154,7 +156,7 @@ export class GamerRoomStageManager implements StageController {
     }
 
     // 1. Oscillating Fan wind physics + RGB Lighting cycle
-    this.room.fan.update(dt, this.koko, (msg) => this.callbacks.onToast(msg));
+    this.room.fan.update(dt, this.koko, camFwd, (msg) => this.callbacks.onToast(msg));
     this.room.rgbLighting.update(dt, time, (msg) => this.callbacks.onToast(msg));
 
     // 2. Koko 360 Physics
@@ -196,8 +198,10 @@ export class GamerRoomStageManager implements StageController {
         this.lastActionTime = time;
         this.actionTickSoundCooldown -= dt;
         if (this.actionTickSoundCooldown <= 0) {
-          this.actionTickSoundCooldown = 0.18;
-          this.sound.playActionTick();
+          this.actionTickSoundCooldown = 0.16;
+          this.sound.playSabotageProgress(
+            this.nearbyProp.currentProgress / Math.max(0.01, this.nearbyProp.requiredHoldDuration)
+          );
         }
         if (this.nearbyProp.currentProgress >= this.nearbyProp.requiredHoldDuration) {
           this.completeBab2Target(this.nearbyProp);
@@ -223,6 +227,7 @@ export class GamerRoomStageManager implements StageController {
       dt,
       time,
       this.koko.position,
+      camFwd,
       isCrawlingMoving,
       isFlying,
       this.koko.effectiveInvincible,
@@ -245,8 +250,7 @@ export class GamerRoomStageManager implements StageController {
       if (this.finaleTimer >= this.finaleDuration) {
         this.isFinaleActive = false;
         this.isStageCleared = true;
-        this.sound.setCrawlActive(false);
-        this.sound.setFlightBuzz(false, 0);
+        this.sound.stopAllLoops();
         this.sound.playStageClear();
 
         const clearReward = 1000;
@@ -284,12 +288,12 @@ export class GamerRoomStageManager implements StageController {
       this.sound.playHighRiskBonus();
     }
 
+    this.sound.playSabotageComplete();
     if (idx === 0) {
       // Target 01: Kontaminasi Minuman
       this.particles.spawnBurst('drink_splash', prop.position);
       this.cam.triggerShake(0.2, 0.25);
-      this.sound.playPrankComplete();
-      this.gamer.triggerDrinkChoke();
+      this.gamer.triggerDrinkChoke(this.koko.position);
       this.currentObjectiveIndex = 1;
       this.callbacks.onToast('★ BINTANG 1! Minuman Energi Terkontaminasi!');
       this.callbacks.onStoryMessage(
@@ -312,7 +316,7 @@ export class GamerRoomStageManager implements StageController {
         this.koko.forceDropFromSurface(-5.0);
       }
 
-      this.gamer.triggerLanCutLag();
+      this.gamer.triggerLanCutLag(this.koko.position);
       this.currentObjectiveIndex = 2;
       this.callbacks.onToast('★ BINTANG 2! Koneksi LAN Putus (PING 999ms)!');
       this.callbacks.onStoryMessage(
@@ -326,7 +330,7 @@ export class GamerRoomStageManager implements StageController {
       this.finaleTimer = 0;
       this.koko.stageInvincible = true;
       this.cam.triggerShake(0.45, 2.5);
-      this.gamer.triggerPanicDefeat();
+      this.gamer.triggerPanicDefeat(this.koko.position);
       this.callbacks.onToast('★ BINTANG 3! Teror Sempurna di Layar!');
       this.callbacks.onStoryMessage(
         'KOKO / "Misi Bab 02 sukses! Kursi gaming sampai terjungkal!"',

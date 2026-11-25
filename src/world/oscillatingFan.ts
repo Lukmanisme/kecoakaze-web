@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { WORLD_SCALE as S } from '../types';
 import { Palette, createToonMaterial } from '../style/palette';
 import { KokoController } from '../physics/kokoPhysics';
-import { SoundEngine } from '../audio/soundEngine';
+import { ProceduralAudioEngine } from '../audio/ProceduralAudioEngine';
 
 interface WindSpeck {
   dist: number;
@@ -40,7 +40,7 @@ export class OscillatingFan {
     position: THREE.Vector3,
     walkables: THREE.Object3D[],
     obstacles: THREE.Object3D[],
-    private readonly sound: SoundEngine
+    private readonly sound: ProceduralAudioEngine
   ) {
     this.root.name = 'Oscillating_Fan';
     this.root.position.copy(position);
@@ -174,7 +174,12 @@ export class OscillatingFan {
     );
   }
 
-  public update(dt: number, koko: KokoController, onToast: (msg: string) => void): void {
+  public update(
+    dt: number,
+    koko: KokoController,
+    camFwd: THREE.Vector3,
+    onToast: (msg: string) => void
+  ): void {
     if (this.hitCooldown > 0) this.hitCooldown -= dt;
 
     // Spin blades
@@ -232,9 +237,16 @@ export class OscillatingFan {
     }
     streamPos.needsUpdate = true;
 
-    // Physics Interaction with Koko
+    // Physics Interaction & Spatial Wind Audio with Koko
     const headPos = this.getHeadWorldPosition();
     const windDir = this.getHeadWorldDirection();
+    const toKokoDir = koko.position.clone().sub(headPos);
+    const fanDist = toKokoDir.length();
+    const alignment =
+      fanDist > 0.01 ? Math.max(0, windDir.dot(toKokoDir.clone().divideScalar(fanDist))) : 0;
+    const { pan } = this.sound.computeSpatialPanAndGain(headPos, koko.position, 46, camFwd);
+    this.sound.updateFanWind(fanDist, alignment, pan);
+
     const grillePos = headPos.clone().addScaledVector(windDir, 0.18 * S);
 
     // 1. Grille turbulence bounce (< 0.5m)

@@ -11,7 +11,7 @@ import {
   WORLD_SCALE as S,
 } from '../types';
 import { KokoRig } from '../entities/kokoModel';
-import { SoundEngine } from '../audio/soundEngine';
+import { CrawlSurfaceType, ProceduralAudioEngine } from '../audio/ProceduralAudioEngine';
 
 export interface LevelPhysicsConfig {
   walkables: THREE.Object3D[];
@@ -71,7 +71,7 @@ export class KokoController {
   constructor(
     private readonly rig: KokoRig,
     config: LevelPhysicsConfig,
-    private readonly sound: SoundEngine
+    private readonly sound: ProceduralAudioEngine
   ) {
     this.walkables = config.walkables;
     this.soapyZone = config.soapyZone;
@@ -277,7 +277,7 @@ export class KokoController {
     );
     const safeBurst = burstHit ? Math.max(0, burstHit.distance - 0.25) : this.dodgeImpulse * 0.11;
     this.position.addScaledVector(dodgeDir, safeBurst);
-    this.sound.playDodge();
+    this.sound.playDodgeWhoosh();
   }
 
   private processCrawling(
@@ -378,7 +378,8 @@ export class KokoController {
     if (!this.isGrounded) {
       this.velocity.y -= 18 * dt;
       this.position.addScaledVector(this.velocity, dt);
-      this.sound.setCrawlActive(false);
+      this.sound.tickCrawlSteps(dt, 0, 'floor');
+      this.sound.updateWingSound(false, false, 0);
 
       const fallHit = this.raycastWalkables(
         this.position.clone().add(new THREE.Vector3(0, 0.2, 0)),
@@ -450,13 +451,16 @@ export class KokoController {
     const targetQ = new THREE.Quaternion().setFromRotationMatrix(basis);
     this.quaternion.slerp(targetQ, Math.min(1, dt * 12));
 
-    this.sound.setFlightBuzz(false, 0);
-    this.sound.setCrawlActive(inputLen > 0.08 && this.isGrounded);
+    this.sound.updateWingSound(false, false, 0);
+    const surfaceType: CrawlSurfaceType =
+      this.surfaceNormal.y > 0.72 ? 'floor' : this.surfaceNormal.y < -0.72 ? 'ceiling' : 'wall';
+    const crawlSpeed = inputLen > 0.08 && this.isGrounded ? this.velocity.length() : 0;
+    this.sound.tickCrawlSteps(dt, crawlSpeed, surfaceType);
   }
 
   private processFlight(dt: number, input: InputState, cameraForward: THREE.Vector3): void {
     this.flightTimer += dt;
-    this.sound.setCrawlActive(false);
+    this.sound.tickCrawlSteps(dt, 0, 'floor');
 
     let ascending = input.flyHeld;
     let gliding = input.glideHeld;
@@ -556,8 +560,7 @@ export class KokoController {
     const targetQ = new THREE.Quaternion().setFromEuler(euler);
     this.quaternion.slerp(targetQ, Math.min(1, dt * 7));
 
-    const speedRatio = Math.min(1.5, this.velocity.length() / this.flyForwardSpeed);
-    this.sound.setFlightBuzz(true, speedRatio);
+    this.sound.updateWingSound(true, this.state === 'Gliding', this.velocity.y);
   }
 
   private landOnSurface(point: THREE.Vector3, normal: THREE.Vector3): void {
@@ -567,7 +570,7 @@ export class KokoController {
     this.targetSurfaceNormal.copy(this.surfaceNormal);
     this.position.copy(point).addScaledVector(this.surfaceNormal, 0.02);
     this.velocity.set(0, 0, 0);
-    this.sound.setFlightBuzz(false, 0);
+    this.sound.updateWingSound(false, false, 0);
     this.sound.playLanding();
   }
 

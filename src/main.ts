@@ -12,7 +12,7 @@ import { IbuBossController } from './ai/ibuBoss';
 import { GamerBossController } from './ai/gamerBoss';
 import { KitchenStageManager } from './game/stageManager';
 import { GamerRoomStageManager } from './game/bab2StageManager';
-import { SoundEngine } from './audio/soundEngine';
+import { ProceduralAudioEngine } from './audio/ProceduralAudioEngine';
 import { HUDController } from './ui/hudController';
 import { ProgressionManager } from './game/progression';
 import { ParticleFXManager } from './effects/particleFx';
@@ -28,7 +28,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.08, 160);
 
-const sound = new SoundEngine();
+const sound = new ProceduralAudioEngine();
 const progression = new ProgressionManager();
 const particles = new ParticleFXManager(scene);
 
@@ -160,8 +160,8 @@ function tick(): void {
   surfaceCam.getUp(camUp);
 
   activeStage.update(dt, now, input, camFwd, camUp);
-  if (activeStage.isStarted && !activeStage.isPaused && !activeStage.isStageCleared) {
-    sound.tick(dt);
+  if (!activeStage.isStarted || activeStage.isPaused || activeStage.isStageCleared) {
+    sound.stopAllLoops();
   }
 
   const snap = activeStage.getHudSnapshot();
