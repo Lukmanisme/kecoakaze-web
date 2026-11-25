@@ -75,6 +75,7 @@ export class QualityManager {
 
   private shadowLights: THREE.DirectionalLight[] = [];
   private activeShadowLight: THREE.DirectionalLight | null = null;
+  private scene: THREE.Scene | null = null;
 
   // Moving average over a 2.0-second window with hysteresis
   private readonly samples: Array<{ dt: number }> = [];
@@ -97,8 +98,9 @@ export class QualityManager {
     this.applyPreset(this.activeTier);
   }
 
-  public registerShadowLights(lights: THREE.DirectionalLight[]): void {
+  public registerShadowLights(lights: THREE.DirectionalLight[], scene?: THREE.Scene): void {
     this.shadowLights = lights;
+    if (scene) this.scene = scene;
     if (!this.activeShadowLight && lights.length > 0) {
       this.activeShadowLight = lights[0];
     }
@@ -185,11 +187,26 @@ export class QualityManager {
   public applyPreset(tier: QualityTier): void {
     this.activeTier = tier;
     const p = QUALITY_PRESETS[tier];
+    const shadowModeChanged =
+      this.renderer.shadowMap.enabled !== p.shadowEnabled ||
+      this.renderer.shadowMap.type !== p.shadowType;
 
     this.renderer.setPixelRatio(p.pixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = p.shadowEnabled;
     this.renderer.shadowMap.type = p.shadowType;
+
+    if (shadowModeChanged && this.scene) {
+      this.scene.traverse((obj) => {
+        const mesh = obj as THREE.Mesh;
+        if (!mesh.isMesh || !mesh.material) return;
+        if (Array.isArray(mesh.material)) {
+          for (const m of mesh.material) m.needsUpdate = true;
+        } else {
+          mesh.material.needsUpdate = true;
+        }
+      });
+    }
 
     this.syncShadowLights();
     this.textures.setAnisotropy(p.anisotropy);

@@ -67,7 +67,7 @@ const surfaceCam = new SurfaceAlignedCamera(camera, kitchenLevel.obstacles);
 const hud = new HUDController(surfaceCam, sound);
 
 const quality = new QualityManager(renderer, textures, vfx, (msg) => hud.showToast(msg));
-quality.registerShadowLights([kitchenLevel.shadowLight, gamerRoom.shadowLight]);
+quality.registerShadowLights([kitchenLevel.shadowLight, gamerRoom.shadowLight], scene);
 
 let bab1Stage!: KitchenStageManager;
 let bab2Stage!: GamerRoomStageManager;

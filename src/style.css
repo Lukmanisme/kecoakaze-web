@@ -732,8 +732,12 @@ body,
   top: 146px;
   left: 50%;
   transform: translateX(-50%);
+  width: max-content;
   max-width: calc(100vw - 32px);
   text-align: center;
+  line-height: 1.3;
+  white-space: normal;
+  word-wrap: break-word;
   background: var(--amber);
   color: var(--ink-solid);
   font-weight: 900;
