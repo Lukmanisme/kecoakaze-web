@@ -11,7 +11,9 @@ import {
 } from '../types';
 import { Palette } from '../style/palette';
 import { ProceduralTextures } from '../graphics/ProceduralTextures';
+import { VFXManager } from '../vfx/VFXManager';
 import {
+  KitchenStoveAnimTargets,
   PropBuildContext,
   addBox,
   buildDispenser,
@@ -45,6 +47,7 @@ export interface KitchenLevelData {
   soapyZone: AABBZone;
   updraftZone: AABBZone;
   updraftParticles: THREE.Points;
+  stoveTargets: KitchenStoveAnimTargets | null;
   kokoSpawn: THREE.Vector3;
   ibuSpawn: THREE.Vector3;
   stations: {
@@ -58,7 +61,8 @@ export interface KitchenLevelData {
 
 export function buildKitchenLevel(
   scene: THREE.Scene,
-  textures: ProceduralTextures
+  textures: ProceduralTextures,
+  vfx?: VFXManager
 ): KitchenLevelData {
   const root = new THREE.Group();
   root.name = 'Environment_Kitchen';
@@ -84,7 +88,7 @@ export function buildKitchenLevel(
   shadowLight.shadow.camera.right = 28;
   shadowLight.shadow.camera.top = 24;
   shadowLight.shadow.camera.bottom = -24;
-  shadowLight.shadow.bias = -0.0005;
+  shadowLight.shadow.bias = -0.0004;
   shadowLight.shadow.normalBias = 0.02;
   root.add(shadowLight);
 
@@ -181,6 +185,21 @@ export function buildKitchenLevel(
     shellOpts
   );
 
+  const ceilingTrimMat = mats.woodDark.clone();
+  ceilingTrimMat.polygonOffset = true;
+  ceilingTrimMat.polygonOffsetFactor = 1;
+  ceilingTrimMat.polygonOffsetUnits = 1;
+
+  const wallPlintSideMat = wallTileSideMat.clone();
+  wallPlintSideMat.polygonOffset = true;
+  wallPlintSideMat.polygonOffsetFactor = -1;
+  wallPlintSideMat.polygonOffsetUnits = -1;
+
+  const wallPlintFrontMat = wallTileBackMat.clone();
+  wallPlintFrontMat.polygonOffset = true;
+  wallPlintFrontMat.polygonOffsetFactor = -1;
+  wallPlintFrontMat.polygonOffsetUnits = -1;
+
   // Right wall (+X) & Front wall (-Z)
   addBox(
     room,
@@ -191,7 +210,7 @@ export function buildKitchenLevel(
     ctx,
     shellOpts
   );
-  addBox(room, 'Plint_Kanan', [halfW - 0.006, 0.06, 0], [0.012, 0.12, ROOM_D], wallTileSideMat, ctx, {
+  addBox(room, 'Plint_Kanan', [halfW - 0.008, 0.061, 0], [0.012, 0.118, ROOM_D - 0.028], wallPlintSideMat, ctx, {
     collider: false,
     castShadow: false,
   });
@@ -205,7 +224,7 @@ export function buildKitchenLevel(
     ctx,
     shellOpts
   );
-  addBox(room, 'Plint_Depan', [0, 0.06, -halfD + 0.006], [ROOM_W, 0.12, 0.012], wallTileBackMat, ctx, {
+  addBox(room, 'Plint_Depan', [0, 0.061, -halfD + 0.008], [ROOM_W - 0.028, 0.118, 0.012], wallPlintFrontMat, ctx, {
     collider: false,
     castShadow: false,
   });
@@ -236,25 +255,25 @@ export function buildKitchenLevel(
     castShadow: false,
   });
 
-  // Full 3.2m Ceiling & Trim
+  // Full 3.2m Ceiling & Trim (non-coplanar offsets & trimmed corners)
   addBox(room, 'Plafon', [0, ROOM_H + 0.05, 0], [ROOM_W + 0.3, 0.1, ROOM_D + 0.3], ceilingMat, ctx, {
     castShadow: false,
     receiveShadow: false,
     isObstacle: false,
   });
-  addBox(room, 'List_Plafon_Belakang', [0, ROOM_H - 0.04, halfD - 0.03], [ROOM_W, 0.08, 0.06], mats.woodDark, ctx, {
+  addBox(room, 'List_Plafon_Belakang', [0, ROOM_H - 0.042, halfD - 0.032], [ROOM_W - 0.008, 0.08, 0.06], ceilingTrimMat, ctx, {
     collider: false,
     castShadow: false,
   });
-  addBox(room, 'List_Plafon_Depan', [0, ROOM_H - 0.04, -halfD + 0.03], [ROOM_W, 0.08, 0.06], mats.woodDark, ctx, {
+  addBox(room, 'List_Plafon_Depan', [0, ROOM_H - 0.042, -halfD + 0.032], [ROOM_W - 0.008, 0.08, 0.06], ceilingTrimMat, ctx, {
     collider: false,
     castShadow: false,
   });
-  addBox(room, 'List_Plafon_Kiri', [-halfW + 0.03, ROOM_H - 0.04, 0], [0.06, 0.08, ROOM_D], mats.woodDark, ctx, {
+  addBox(room, 'List_Plafon_Kiri', [-halfW + 0.032, ROOM_H - 0.042, 0], [0.06, 0.08, ROOM_D - 0.128], ceilingTrimMat, ctx, {
     collider: false,
     castShadow: false,
   });
-  addBox(room, 'List_Plafon_Kanan', [halfW - 0.03, ROOM_H - 0.04, 0], [0.06, 0.08, ROOM_D], mats.woodDark, ctx, {
+  addBox(room, 'List_Plafon_Kanan', [halfW - 0.032, ROOM_H - 0.042, 0], [0.06, 0.08, ROOM_D - 0.128], ceilingTrimMat, ctx, {
     collider: false,
     castShadow: false,
   });
@@ -313,6 +332,11 @@ export function buildKitchenLevel(
     max: new THREE.Vector3(stovePos.x + 0.45 * S, 2.4 * S, stovePos.z + 0.3 * S),
   };
   const updraftParticles = createUpdraftParticles(root, new THREE.Vector3(-1.2 * S, 1.05 * S, (counterZ + 0.04) * S));
+  if (vfx) {
+    const potSteamOrigin = new THREE.Vector3((-1.2 + 0.18 + 0.025) * S, 1.095 * S, (counterZ + 0.04) * S);
+    const wokSteamOrigin = new THREE.Vector3((-1.2 - 0.18) * S, 1.02 * S, (counterZ + 0.04) * S);
+    vfx.attachKitchenSteamRig(root, potSteamOrigin, wokSteamOrigin);
+  }
 
   scene.updateMatrixWorld(true);
 
@@ -326,6 +350,7 @@ export function buildKitchenLevel(
     soapyZone,
     updraftZone,
     updraftParticles,
+    stoveTargets: ctx.stoveAnim ?? null,
     kokoSpawn: new THREE.Vector3(-2.6 * S, 0.08, -2.2 * S),
     ibuSpawn: new THREE.Vector3(0.05 * S, 0, 2.0 * S),
     stations: {
@@ -534,22 +559,38 @@ function createHidingSpots(
 }
 
 function createUpdraftParticles(root: THREE.Group, origin: THREE.Vector3): THREE.Points {
-  const count = 42;
+  const count = 24;
   const positions = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) {
-    positions[i * 3] = origin.x + (Math.random() - 0.5) * 4.2;
-    positions[i * 3 + 1] = origin.y + Math.random() * 7.5;
-    positions[i * 3 + 2] = origin.z + (Math.random() - 0.5) * 2.8;
+    positions[i * 3] = origin.x + (Math.random() - 0.5) * 4.0;
+    positions[i * 3 + 1] = origin.y + Math.random() * 6.5;
+    positions[i * 3 + 2] = origin.z + (Math.random() - 0.5) * 2.6;
   }
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geom.userData.origin = origin.clone();
 
+  // Soft circular radial-fade texture instead of sharp white squares
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d')!;
+  const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
+  grad.addColorStop(0, 'rgba(255,255,255,0.85)');
+  grad.addColorStop(0.5, 'rgba(255,255,255,0.28)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 64, 64);
+  const softTex = new THREE.CanvasTexture(canvas);
+  softTex.colorSpace = THREE.SRGBColorSpace;
+
   const mat = new THREE.PointsMaterial({
-    color: 0xbef2ff,
-    size: 0.22,
+    map: softTex,
+    color: 0xeaf8ff,
+    size: 0.42,
     transparent: true,
-    opacity: 0.65,
+    opacity: 0.24,
+    depthWrite: false,
   });
   const pts = new THREE.Points(geom, mat);
   pts.raycast = () => {};

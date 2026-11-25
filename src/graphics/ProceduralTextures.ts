@@ -343,6 +343,84 @@ export class ProceduralTextures {
   }
 
   /**
+   * Tekstur kedelai prosedural untuk Tempe Goreng (kuning keemasan) & Tempe Mentah (krem kedelai).
+   */
+  public createTempeMaterial(fried: boolean): THREE.MeshStandardMaterial {
+    const cacheKey = `tempe:${fried ? 'fried' : 'raw'}`;
+    const existing = this.materialCache.get(cacheKey);
+    if (existing) return existing;
+
+    const size = 128;
+    const diffCanvas = document.createElement('canvas');
+    diffCanvas.width = size;
+    diffCanvas.height = size;
+    const dctx = diffCanvas.getContext('2d')!;
+
+    const bumpCanvas = document.createElement('canvas');
+    bumpCanvas.width = size;
+    bumpCanvas.height = size;
+    const bctx = bumpCanvas.getContext('2d')!;
+
+    dctx.fillStyle = fried ? '#d78c24' : '#ebe3cf';
+    dctx.fillRect(0, 0, size, size);
+    bctx.fillStyle = '#888888';
+    bctx.fillRect(0, 0, size, size);
+
+    // Subtle browned crispy edge vignette when fried
+    if (fried) {
+      const grad = dctx.createRadialGradient(size * 0.5, size * 0.5, size * 0.18, size * 0.5, size * 0.5, size * 0.72);
+      grad.addColorStop(0, 'rgba(244, 193, 86, 0.35)');
+      grad.addColorStop(1, 'rgba(138, 68, 12, 0.52)');
+      dctx.fillStyle = grad;
+      dctx.fillRect(0, 0, size, size);
+    }
+
+    // Scattered soybean granules in deterministic pattern
+    for (let i = 0; i < 64; i++) {
+      const x = ((i * 47 + 13) % (size - 16)) + 8;
+      const y = ((i * 79 + 21) % (size - 16)) + 8;
+      const rx = 4 + (i % 4);
+      const ry = 2.6 + ((i * 3) % 3);
+      const rot = ((i * 37) % 180) * (Math.PI / 180);
+
+      dctx.save();
+      dctx.translate(x, y);
+      dctx.rotate(rot);
+      dctx.fillStyle = fried
+        ? i % 3 === 0 ? '#f3cb72' : '#c07119'
+        : i % 3 === 0 ? '#d8be82' : '#c9ad6d';
+      dctx.beginPath();
+      dctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+      dctx.fill();
+      dctx.restore();
+
+      bctx.save();
+      bctx.translate(x, y);
+      bctx.rotate(rot);
+      bctx.fillStyle = '#cfcfcf';
+      bctx.beginPath();
+      bctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+      bctx.fill();
+      bctx.restore();
+    }
+
+    const map = this.registerTex(new THREE.CanvasTexture(diffCanvas), true, 1, 1);
+    const bumpMap = this.registerTex(new THREE.CanvasTexture(bumpCanvas), false, 1, 1);
+
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map,
+      bumpMap,
+      bumpScale: 0.022,
+      roughness: fried ? 0.38 : 0.84,
+      metalness: 0.02,
+      envMapIntensity: fried ? 0.72 : 0.3,
+    });
+    this.materialCache.set(cacheKey, mat);
+    return mat;
+  }
+
+  /**
    * Helper PBR matte (cat dinding, kain, kulit, makanan, kardus) agar harmonis dengan scene.environment.
    */
   public createMatteMaterial(

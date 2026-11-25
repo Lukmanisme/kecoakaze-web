@@ -39,7 +39,7 @@ const textures = new ProceduralTextures(renderer.capabilities.getMaxAnisotropy()
 scene.environment = textures.buildIndoorEnvironment(renderer);
 
 // Build both environments cleanly using cached PBR textures
-const kitchenLevel = buildKitchenLevel(scene, textures);
+const kitchenLevel = buildKitchenLevel(scene, textures, vfx);
 const gamerRoom = buildGamerRoomLevel(scene, sound, vfx, textures);
 
 const kokoRig = new KokoRig();

@@ -31,8 +31,38 @@ interface FanDustMote {
   speed: number;
 }
 
+interface SteamPuff {
+  sprite: THREE.Sprite;
+  mat: THREE.SpriteMaterial;
+  origin: THREE.Vector3;
+  age: number;
+  maxLife: number;
+  riseHeight: number;
+  startScale: number;
+  endScale: number;
+  maxOpacity: number;
+  curlFreq: number;
+  curlAmp: number;
+  phase: number;
+  isWok: boolean;
+}
+
+interface OilSplashDrop {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  age: number;
+  maxLife: number;
+}
+
 const POOL_SIZE = 220;
 const DUST_COUNT = 40;
+const POT_STEAM_COUNT = 18;
+const WOK_STEAM_COUNT = 10;
+const OIL_SPLASH_COUNT = 14;
 const SPARK_ARCS = 4;
 const SPARK_SEGS_PER_ARC = 6;
 
@@ -71,8 +101,17 @@ export class VFXManager {
   private monitorGlareCone: THREE.Mesh | null = null;
   private radialGlowTex: THREE.CanvasTexture | null = null;
   private coneGlowTex: THREE.CanvasTexture | null = null;
+  private steamPuffTex: THREE.CanvasTexture | null = null;
   private readonly tmpColorA = new THREE.Color();
   private readonly tmpColorB = new THREE.Color();
+
+  // 5. Bab 01 Kitchen Soft Volumetric-Style Steam & Frying Sizzle
+  private kitchenSteamGroup: THREE.Group | null = null;
+  private readonly steamPuffs: SteamPuff[] = [];
+  private oilSplashPoints: THREE.Points | null = null;
+  private readonly oilSplashDrops: OilSplashDrop[] = [];
+  private readonly wokOrigin = new THREE.Vector3();
+  private kitchenSteamTime = 0;
 
   constructor(private readonly scene: THREE.Scene) {
     // Initialize InstancedMesh Pool
@@ -200,6 +239,7 @@ export class VFXManager {
     this.particleScale = Math.max(0.15, Math.min(1.0, particleScale));
     this.enableAmbientDust = enableAmbientDust;
     this.applyFanWindQuality();
+    this.applyKitchenSteamQuality();
   }
 
   private applyFanWindQuality(): void {
@@ -209,6 +249,187 @@ export class VFXManager {
     }
     if (this.fanDustPoints) {
       this.fanDustPoints.visible = this.enableAmbientDust;
+    }
+  }
+
+  // -----------------------------------------------------------------
+  // 1B. BAB 01 SOFT VOLUMETRIC-STYLE COOKING STEAM & WOK OIL SIZZLE
+  // -----------------------------------------------------------------
+  public attachKitchenSteamRig(
+    levelRoot: THREE.Group,
+    potOriginWorld: THREE.Vector3,
+    wokOriginWorld: THREE.Vector3
+  ): void {
+    if (this.kitchenSteamGroup) {
+      this.kitchenSteamGroup.parent?.remove(this.kitchenSteamGroup);
+    }
+    this.steamPuffs.length = 0;
+    this.oilSplashDrops.length = 0;
+    this.wokOrigin.copy(wokOriginWorld);
+
+    const group = new THREE.Group();
+    group.name = 'VFX_KitchenSteam';
+    levelRoot.add(group);
+    this.kitchenSteamGroup = group;
+
+    const steamTex = this.getSteamPuffTexture();
+
+    const makeSteamBatch = (
+      count: number,
+      origin: THREE.Vector3,
+      isWok: boolean
+    ) => {
+      for (let i = 0; i < count; i++) {
+        const mat = new THREE.SpriteMaterial({
+          map: steamTex,
+          color: isWok ? 0xfff3de : 0xffffff,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+        });
+        const sprite = new THREE.Sprite(mat);
+        sprite.raycast = () => {};
+        group.add(sprite);
+
+        const maxLife = isWok ? 1.15 + (i % 4) * 0.16 : 2.35 + (i % 5) * 0.22;
+        this.steamPuffs.push({
+          sprite,
+          mat,
+          origin: origin.clone(),
+          age: (i / count) * maxLife,
+          maxLife,
+          // Pot steam fades cleanly before LemariGantung (y=1.72*S vs pot y=1.10*S => max rise ~0.55*S)
+          riseHeight: isWok ? 0.56 * S : 0.54 * S,
+          startScale: (isWok ? 0.11 : 0.15) * S,
+          endScale: (isWok ? 0.42 : 0.65) * S,
+          maxOpacity: isWok ? 0.24 : 0.38,
+          curlFreq: isWok ? 3.2 : 2.1,
+          curlAmp: (isWok ? 0.045 : 0.065) * S,
+          phase: i * 1.37,
+          isWok,
+        });
+      }
+    };
+
+    makeSteamBatch(POT_STEAM_COUNT, potOriginWorld, false);
+    makeSteamBatch(WOK_STEAM_COUNT, wokOriginWorld, true);
+
+    // Micro oil splatter droplets above the frying wok
+    const splashPos = new Float32Array(OIL_SPLASH_COUNT * 3);
+    for (let i = 0; i < OIL_SPLASH_COUNT; i++) {
+      const ang = (i / OIL_SPLASH_COUNT) * Math.PI * 2;
+      const rad = (0.02 + (i % 5) * 0.024) * S;
+      const maxLife = 0.34 + (i % 4) * 0.09;
+      this.oilSplashDrops.push({
+        x: wokOriginWorld.x + Math.cos(ang) * rad,
+        y: wokOriginWorld.y,
+        z: wokOriginWorld.z + Math.sin(ang) * rad,
+        vx: Math.cos(ang) * 0.28,
+        vy: 1.55 + (i % 3) * 0.48,
+        vz: Math.sin(ang) * 0.28,
+        age: (i / OIL_SPLASH_COUNT) * maxLife,
+        maxLife,
+      });
+    }
+    const splashGeo = new THREE.BufferGeometry();
+    splashGeo.setAttribute('position', new THREE.BufferAttribute(splashPos, 3));
+    const splashMat = new THREE.PointsMaterial({
+      map: this.getRadialGlowTexture(),
+      color: 0xffd166,
+      size: 0.22,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const splashPts = new THREE.Points(splashGeo, splashMat);
+    splashPts.raycast = () => {};
+    group.add(splashPts);
+    this.oilSplashPoints = splashPts;
+
+    this.applyKitchenSteamQuality();
+  }
+
+  private applyKitchenSteamQuality(): void {
+    let potSeen = 0;
+    let wokSeen = 0;
+    const potTarget = Math.max(4, Math.round(POT_STEAM_COUNT * this.particleScale));
+    const wokTarget = Math.max(3, Math.round(WOK_STEAM_COUNT * this.particleScale));
+    for (const p of this.steamPuffs) {
+      if (p.isWok) {
+        p.sprite.visible = wokSeen < wokTarget;
+        wokSeen++;
+      } else {
+        p.sprite.visible = potSeen < potTarget;
+        potSeen++;
+      }
+    }
+    if (this.oilSplashPoints) {
+      this.oilSplashPoints.visible = this.particleScale >= 0.4;
+    }
+  }
+
+  private updateKitchenSteamVfx(dt: number): void {
+    if (!this.kitchenSteamGroup || !this.kitchenSteamGroup.visible) return;
+    // Skip simulation if parent level root is hidden (e.g. Bab 02 active)
+    if (this.kitchenSteamGroup.parent && !this.kitchenSteamGroup.parent.visible) return;
+
+    this.kitchenSteamTime += dt;
+
+    for (let i = 0; i < this.steamPuffs.length; i++) {
+      const p = this.steamPuffs[i];
+      if (!p.sprite.visible) continue;
+
+      p.age += dt;
+      if (p.age >= p.maxLife) {
+        p.age %= p.maxLife;
+      }
+
+      const t = p.age / p.maxLife;
+      const easeOut = 1 - Math.pow(1 - t, 1.5);
+      const scale = p.startScale + (p.endScale - p.startScale) * easeOut;
+
+      // Smooth fade-in then full fade-out before reaching upper cabinet
+      const fadeIn = Math.min(1, t / 0.16);
+      const fadeOut = Math.pow(Math.max(0, 1 - t), 1.35);
+      p.mat.opacity = p.maxOpacity * fadeIn * fadeOut;
+
+      const swirl = Math.sin(this.kitchenSteamTime * p.curlFreq + p.phase + t * 4.5) * p.curlAmp * (0.25 + t);
+      const swirlZ = Math.cos(this.kitchenSteamTime * (p.curlFreq * 0.85) + p.phase + t * 3.8) * p.curlAmp * 0.75 * (0.25 + t);
+
+      p.sprite.position.set(
+        p.origin.x + swirl,
+        p.origin.y + p.riseHeight * t,
+        p.origin.z + swirlZ
+      );
+      p.sprite.scale.set(scale, scale, 1);
+    }
+
+    if (this.oilSplashPoints && this.oilSplashPoints.visible) {
+      const attr = this.oilSplashPoints.geometry.getAttribute('position') as THREE.BufferAttribute;
+      for (let i = 0; i < this.oilSplashDrops.length; i++) {
+        const d = this.oilSplashDrops[i];
+        d.age += dt;
+        if (d.age >= d.maxLife) {
+          d.age %= d.maxLife;
+          const ang = (i * 1.9 + this.kitchenSteamTime * 3.1) % (Math.PI * 2);
+          const rad = (0.02 + ((i * 7) % 10) * 0.011) * S;
+          d.x = this.wokOrigin.x + Math.cos(ang) * rad;
+          d.y = this.wokOrigin.y;
+          d.z = this.wokOrigin.z + Math.sin(ang) * rad;
+          d.vx = Math.cos(ang) * 0.28;
+          d.vz = Math.sin(ang) * 0.28;
+        }
+        const t = d.age;
+        const y = d.y + d.vy * t - 4.2 * t * t;
+        attr.setXYZ(
+          i,
+          d.x + d.vx * t,
+          Math.max(this.wokOrigin.y, y),
+          d.z + d.vz * t
+        );
+      }
+      attr.needsUpdate = true;
     }
   }
 
@@ -639,6 +860,7 @@ export class VFXManager {
   // -----------------------------------------------------------------
   public update(dt: number): void {
     this.updateFanWindVfx(dt);
+    this.updateKitchenSteamVfx(dt);
 
     let dirty = false;
     for (let i = 0; i < POOL_SIZE; i++) {
@@ -701,6 +923,40 @@ export class VFXManager {
   // -----------------------------------------------------------------
   // PROCEDURAL TEXTURE HELPERS
   // -----------------------------------------------------------------
+  private getSteamPuffTexture(): THREE.CanvasTexture {
+    if (this.steamPuffTex) return this.steamPuffTex;
+    const size = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+    ctx.clearRect(0, 0, size, size);
+
+    // Layered soft radial cloud puffs with zero alpha at outer edges
+    const puffs: Array<[number, number, number, number]> = [
+      [64, 64, 58, 0.72],
+      [48, 56, 38, 0.35],
+      [80, 58, 36, 0.32],
+      [62, 46, 34, 0.30],
+    ];
+    for (const [cx, cy, r, peak] of puffs) {
+      const g = ctx.createRadialGradient(cx, cy, 2, cx, cy, r);
+      g.addColorStop(0, `rgba(255,255,255,${peak})`);
+      g.addColorStop(0.45, `rgba(255,255,255,${peak * 0.42})`);
+      g.addColorStop(0.82, `rgba(255,255,255,${peak * 0.08})`);
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    this.steamPuffTex = tex;
+    return tex;
+  }
+
   private getRadialGlowTexture(): THREE.CanvasTexture {
     if (this.radialGlowTex) return this.radialGlowTex;
     const canvas = document.createElement('canvas');

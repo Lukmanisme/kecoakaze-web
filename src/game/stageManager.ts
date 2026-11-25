@@ -196,6 +196,7 @@ export class KitchenStageManager implements StageController {
     camUp: THREE.Vector3
   ): void {
     this.animateUpdraftParticles(dt);
+    this.animateStoveDetails(time);
 
     if (this.isPaused || !this.isStarted || this.isStageCleared) {
       this.sound.stopAllLoops();
@@ -350,6 +351,39 @@ export class KitchenStageManager implements StageController {
       'KOKO / "Misi kecil selesai. Jangan ketahuan dulu!"\nMenjauh; bintang terbuka saat Ibu menemukan keisengan.',
       6
     );
+  }
+
+  private animateStoveDetails(time: number): void {
+    const targets = this.level.stoveTargets;
+    if (!targets) return;
+
+    // 1. Subtle gas burner flame flicker
+    const flicker = 0.88 + Math.sin(time * 24) * 0.08 + Math.cos(time * 37) * 0.06;
+    targets.flameMat.emissiveIntensity = 1.85 * flicker;
+    for (let i = 0; i < targets.flameGroups.length; i++) {
+      const fg = targets.flameGroups[i];
+      const f = 0.92 + Math.sin(time * 22 + i * 2.1) * 0.1;
+      fg.scale.set(1, f, 1);
+    }
+
+    // 2. Gentle simmering broth & floating ingredients inside Panci Sup
+    if (targets.soupSurface) {
+      const wave = 1 + Math.sin(time * 3.8) * 0.012;
+      targets.soupSurface.scale.set(wave, 1, wave);
+    }
+    for (let i = 0; i < targets.soupItems.length; i++) {
+      const item = targets.soupItems[i];
+      item.obj.position.y = item.baseY + Math.sin(time * 2.8 + item.phase) * 0.018;
+      item.obj.rotation.y += 0.0018 * (i % 2 === 0 ? 1 : -1);
+    }
+
+    // 3. Hot frying oil sizzling bubbles around tempe goreng
+    for (let i = 0; i < targets.oilBubbles.length; i++) {
+      const b = targets.oilBubbles[i];
+      const cycle = ((time * 2.6 + b.phase) % 1 + 1) % 1;
+      const pop = Math.sin(cycle * Math.PI);
+      b.mesh.scale.setScalar(Math.max(0.2, b.baseScale * (0.35 + pop * 1.15)));
+    }
   }
 
   private animateUpdraftParticles(dt: number): void {

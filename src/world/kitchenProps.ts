@@ -9,7 +9,9 @@ export interface KitchenMaterialSet {
   steel: THREE.MeshStandardMaterial;
   counter: THREE.MeshStandardMaterial;
   counterTop: THREE.MeshStandardMaterial;
+  plinth: THREE.MeshStandardMaterial;
   stoveDark: THREE.MeshStandardMaterial;
+  burnerIron: THREE.MeshStandardMaterial;
   flame: THREE.MeshStandardMaterial;
   lpg: THREE.MeshStandardMaterial;
   pan: THREE.MeshStandardMaterial;
@@ -25,6 +27,7 @@ export interface KitchenMaterialSet {
   white: THREE.MeshStandardMaterial;
   cabinetSage: THREE.MeshStandardMaterial;
   glass: THREE.MeshStandardMaterial;
+  potGlassLid: THREE.MeshStandardMaterial;
   curtain: THREE.MeshStandardMaterial;
   trash: THREE.MeshStandardMaterial;
   bucket: THREE.MeshStandardMaterial;
@@ -40,23 +43,63 @@ export interface KitchenMaterialSet {
   ijuk: THREE.MeshStandardMaterial;
   neonGlow: THREE.MeshStandardMaterial;
   brass: THREE.MeshStandardMaterial;
+  soupBroth: THREE.MeshStandardMaterial;
+  oilGloss: THREE.MeshStandardMaterial;
+  oilBubble: THREE.MeshStandardMaterial;
+  tempeFried: THREE.MeshStandardMaterial;
+  tempeRaw: THREE.MeshStandardMaterial;
+  carrot: THREE.MeshStandardMaterial;
+  potato: THREE.MeshStandardMaterial;
+  greenLeaf: THREE.MeshStandardMaterial;
+  greenStem: THREE.MeshStandardMaterial;
+  chiliRed: THREE.MeshStandardMaterial;
+  meatball: THREE.MeshStandardMaterial;
+  ledCook: THREE.MeshStandardMaterial;
+  ledWarm: THREE.MeshStandardMaterial;
+}
+
+export interface KitchenStoveAnimTargets {
+  flameGroups: THREE.Group[];
+  flameMat: THREE.MeshStandardMaterial;
+  soupSurface: THREE.Mesh | null;
+  soupItems: Array<{ obj: THREE.Object3D; baseY: number; phase: number }>;
+  oilBubbles: Array<{ mesh: THREE.Mesh; baseScale: number; phase: number }>;
 }
 
 export function createKitchenMaterials(textures: ProceduralTextures): KitchenMaterialSet {
+  const plinthMat = textures
+    .createWoodMaterial({
+      key: 'kitchen_plinth',
+      baseHex: '#633F2A',
+      altHex: '#573623',
+      grainHex: '#3A2114',
+      planks: 2,
+      roughness: 0.78,
+    })
+    .clone();
+  plinthMat.polygonOffset = true;
+  plinthMat.polygonOffsetFactor = 1;
+  plinthMat.polygonOffsetUnits = 1;
+
   return {
     fridgeBody: textures.createPlasticMaterial({ colorHex: 0xa9dcc9, roughness: 0.42 }),
     ink: textures.createMetalMaterial({ variant: 'powder', colorHex: Palette.Ink }),
     steel: textures.createMetalMaterial({ variant: 'stainless', colorHex: 0xd0d7da }),
     counter: textures.createMatteMaterial(0xd9cfb8, { roughness: 0.78 }),
     counterTop: textures.createMatteMaterial(0x8fa5a8, { roughness: 0.32, metalness: 0.05 }),
+    plinth: plinthMat,
     stoveDark: textures.createMetalMaterial({ variant: 'powder', colorHex: 0x3b4449 }),
-    flame: textures.createMatteMaterial(0x6fb7ff, {
-      emissive: 0x3c7fd9,
-      emissiveIntensity: 1.0,
-      roughness: 0.4,
+    burnerIron: textures.createMetalMaterial({ variant: 'powder', colorHex: 0x1b1e22, roughness: 0.86 }),
+    flame: textures.createMatteMaterial(0x63e6ff, {
+      emissive: 0x00b4ff,
+      emissiveIntensity: 2.1,
+      roughness: 0.2,
+      transparent: true,
+      opacity: 0.9,
+      side: THREE.DoubleSide,
     }),
     lpg: textures.createMetalMaterial({ variant: 'powder', colorHex: 0x67a944 }),
-    pan: textures.createMetalMaterial({ variant: 'powder', colorHex: 0x383c40, roughness: 0.4 }),
+    pan: textures.createMetalMaterial({ variant: 'powder', colorHex: 0x2f3338, roughness: 0.34 }),
     wood: textures.createWoodMaterial({
       key: 'kitchen_jati',
       baseHex: '#C28A5A',
@@ -98,6 +141,14 @@ export function createKitchenMaterials(textures: ProceduralTextures): KitchenMat
       opacity: 0.82,
       envMapIntensity: 1.2,
     }),
+    potGlassLid: textures.createMatteMaterial(0xe2f7fa, {
+      roughness: 0.1,
+      metalness: 0.14,
+      transparent: true,
+      opacity: 0.34,
+      side: THREE.DoubleSide,
+      envMapIntensity: 1.35,
+    }),
     curtain: textures.createMatteMaterial(Palette.Mustard, { roughness: 0.9 }),
     trash: textures.createPlasticMaterial({ colorHex: Palette.Teal, roughness: 0.5 }),
     bucket: textures.createPlasticMaterial({ colorHex: Palette.Orange, roughness: 0.45 }),
@@ -121,12 +172,56 @@ export function createKitchenMaterials(textures: ProceduralTextures): KitchenMat
       roughness: 0.3,
     }),
     brass: textures.createMetalMaterial({ variant: 'stainless', colorHex: 0xdfb256, roughness: 0.28 }),
+    soupBroth: textures.createMatteMaterial(0xeab846, {
+      emissive: 0x5c3807,
+      emissiveIntensity: 0.24,
+      roughness: 0.14,
+      metalness: 0.04,
+      transparent: true,
+      opacity: 0.9,
+      envMapIntensity: 0.95,
+    }),
+    oilGloss: textures.createMatteMaterial(0xf0bc3e, {
+      emissive: 0x3b2404,
+      emissiveIntensity: 0.12,
+      roughness: 0.07,
+      metalness: 0.12,
+      transparent: true,
+      opacity: 0.86,
+      envMapIntensity: 1.25,
+    }),
+    oilBubble: textures.createMatteMaterial(0xffeba8, {
+      emissive: 0xd49b28,
+      emissiveIntensity: 0.25,
+      roughness: 0.12,
+      transparent: true,
+      opacity: 0.85,
+    }),
+    tempeFried: textures.createTempeMaterial(true),
+    tempeRaw: textures.createTempeMaterial(false),
+    carrot: textures.createMatteMaterial(0xf26e1d, { roughness: 0.56 }),
+    potato: textures.createMatteMaterial(0xedd58a, { roughness: 0.68 }),
+    greenLeaf: textures.createMatteMaterial(0x4b9e41, { roughness: 0.58, side: THREE.DoubleSide }),
+    greenStem: textures.createMatteMaterial(0x9bd272, { roughness: 0.52 }),
+    chiliRed: textures.createMatteMaterial(0xd82222, { roughness: 0.38 }),
+    meatball: textures.createMatteMaterial(0x7d6150, { roughness: 0.72 }),
+    ledCook: textures.createMatteMaterial(0xff9b2b, {
+      emissive: 0xff7700,
+      emissiveIntensity: 1.8,
+      roughness: 0.3,
+    }),
+    ledWarm: textures.createMatteMaterial(0x4ee883, {
+      emissive: 0x26c75e,
+      emissiveIntensity: 1.4,
+      roughness: 0.3,
+    }),
   };
 }
 
 export interface PropBuildContext {
   walkables: THREE.Object3D[];
   obstacles: THREE.Object3D[];
+  stoveAnim?: KitchenStoveAnimTargets;
 }
 
 export function addBox(
@@ -242,10 +337,14 @@ function addCounterBase(
   ctx: PropBuildContext,
   solidTop = true
 ): void {
-  const cabinetH = solidTop ? 0.82 : 0.66;
-  addBox(root, 'Cabinet', [0, cabinetH * 0.5, 0.01], [width, cabinetH, 0.58], m.counter, ctx);
-  addBox(root, 'Plinth', [0, 0.04, -0.27], [width - 0.04, 0.08, 0.02], m.woodDark, ctx, {
-    collider: false,
+  const plinthH = 0.1;
+  const bodyH = (solidTop ? 0.82 : 0.66) - plinthH;
+  const bodyCenterY = plinthH + bodyH * 0.5;
+  addBox(root, 'Cabinet', [0, bodyCenterY, 0.01], [width, bodyH, 0.58], m.counter, ctx);
+  // Non-coplanar toe-kick plinth: y = 0.002..0.100m, recessed 0.026m from front doors (-0.28)
+  addBox(root, 'Plinth', [0, 0.051, 0.018], [width - 0.012, 0.098, 0.544], m.plinth, ctx, {
+    collider: true,
+    isObstacle: true,
     castShadow: false,
   });
   if (solidTop) {
@@ -256,7 +355,7 @@ function addCounterBase(
   for (let i = 0; i < doors; i++) {
     const x = -width * 0.5 + doorW * (i + 0.5);
     if (i > 0) {
-      addBox(root, `DoorGap_${i}`, [x - doorW * 0.5, 0.45, -0.285], [0.012, 0.66, 0.01], m.ink, ctx, {
+      addBox(root, `DoorGap_${i}`, [x - doorW * 0.5, 0.41, -0.283], [0.012, 0.56, 0.008], m.ink, ctx, {
         collider: false,
         castShadow: false,
       });
@@ -264,7 +363,7 @@ function addCounterBase(
     const knobX = x + (i % 2 === 0 ? doorW * 0.32 : -doorW * 0.32);
     addSph(root, `Knob_${i}`, [knobX, 0.62, -0.3], [0.035, 0.035, 0.035], m.steel);
   }
-  addBox(root, 'DrawerGap', [0, 0.7, -0.285], [width - 0.02, 0.012, 0.01], m.ink, ctx, {
+  addBox(root, 'DrawerGap', [0, 0.7, -0.283], [width - 0.02, 0.012, 0.008], m.ink, ctx, {
     collider: false,
     castShadow: false,
   });
@@ -382,25 +481,54 @@ export function buildKomporGas(m: KitchenMaterialSet, ctx: PropBuildContext): TH
   const root = new THREE.Group();
   root.name = 'Prop_KomporGas';
 
-  addBox(root, 'Cabinet_Left', [-0.28, 0.41, 0.01], [0.64, 0.82, 0.58], m.counter, ctx);
-  addBox(root, 'Plinth_Left', [-0.28, 0.04, -0.27], [0.6, 0.08, 0.02], m.woodDark, ctx, {
-    collider: false,
+  const animTargets: KitchenStoveAnimTargets = {
+    flameGroups: [],
+    flameMat: m.flame,
+    soupSurface: null,
+    soupItems: [],
+    oilBubbles: [],
+  };
+  ctx.stoveAnim = animTargets;
+
+  // Non-coplanar cabinet + recessed plinth (y = 0.002..0.100m, cabinet starts at y = 0.10m)
+  addBox(root, 'Cabinet_Left', [-0.28, 0.46, 0.01], [0.64, 0.72, 0.58], m.counter, ctx);
+  addBox(root, 'Plinth_Left', [-0.28, 0.051, 0.018], [0.628, 0.098, 0.544], m.plinth, ctx, {
+    collider: true,
+    isObstacle: true,
     castShadow: false,
   });
   addSph(root, 'Knob_Left', [-0.14, 0.62, -0.295], [0.035, 0.035, 0.035], m.steel);
-  addBox(root, 'Shelf_BackPanel', [0.31, 0.41, 0.29], [0.54, 0.82, 0.02], m.counter, ctx);
-  addBox(root, 'Shelf_SideRight', [0.59, 0.41, 0.01], [0.02, 0.82, 0.58], m.counter, ctx);
+  addBox(root, 'Shelf_BackPanel', [0.31, 0.411, 0.29], [0.54, 0.818, 0.02], m.counter, ctx);
+  addBox(root, 'Shelf_SideRight', [0.59, 0.411, 0.01], [0.02, 0.818, 0.58], m.counter, ctx);
   addBox(root, 'Top', [0, 0.84, 0], [1.22, 0.04, 0.62], m.counterTop, ctx);
 
-  // Kompor Gas 2 Tungku
+  // Kompor Gas 2 Tungku Lengkap
   addBox(root, 'Kompor_Body', [0, 0.91, 0.02], [0.72, 0.1, 0.42], m.stoveDark, ctx);
   addBox(root, 'Kompor_Panel', [0, 0.9, -0.195], [0.72, 0.07, 0.02], m.steel, ctx, {
     collider: false,
     castShadow: false,
   });
+
+  const flameTipGeo = new THREE.ConeGeometry(0.009 * S, 0.022 * S, 6);
+  const flameRingGeo = new THREE.TorusGeometry(0.056 * S, 0.006 * S, 6, 18);
+  const outerGrateGeo = new THREE.TorusGeometry(0.116 * S, 0.0075 * S, 8, 22);
+  const innerGrateGeo = new THREE.TorusGeometry(0.066 * S, 0.006 * S, 6, 18);
+  const bowlDripGeo = new THREE.CylinderGeometry(0.125 * S, 0.09 * S, 0.008 * S, 20);
+
   for (let i = 0; i < 2; i++) {
     const x = i === 0 ? -0.18 : 0.18;
-    addCyl(root, `Tungku_${i}`, [x, 0.968, 0.04], 0.17, 0.016, m.ink, ctx, {
+    const bz = 0.04;
+
+    // Stainless drip bowl
+    const dripBowl = new THREE.Mesh(bowlDripGeo, m.steel);
+    dripBowl.name = `Tungku_Bowl_${i}`;
+    dripBowl.position.set(x * S, 0.962 * S, bz * S);
+    dripBowl.receiveShadow = true;
+    dripBowl.raycast = () => {};
+    root.add(dripBowl);
+
+    // Brass/iron burner cap & knob
+    addCyl(root, `Tungku_${i}`, [x, 0.969, bz], 0.105, 0.014, m.burnerIron, ctx, {
       collider: false,
       castShadow: false,
     });
@@ -409,51 +537,322 @@ export function buildKomporGas(m: KitchenMaterialSet, ctx: PropBuildContext): TH
       eulerDeg: [90, 0, 0],
       castShadow: false,
     });
-    addBox(root, `Grate_A_${i}`, [x, 0.978, 0.04], [0.22, 0.014, 0.018], m.ink, ctx, {
-      collider: false,
-      castShadow: false,
-    });
-    addBox(root, `Grate_B_${i}`, [x, 0.978, 0.04], [0.018, 0.014, 0.22], m.ink, ctx, {
-      collider: false,
-      castShadow: false,
+
+    // Matte black serrated cast-iron burner grates (tungku besi bergerigi)
+    const grateGroup = new THREE.Group();
+    grateGroup.name = `Grate_Group_${i}`;
+    grateGroup.position.set(x * S, 0.978 * S, bz * S);
+
+    const outerRing = new THREE.Mesh(outerGrateGeo, m.burnerIron);
+    outerRing.rotation.x = Math.PI * 0.5;
+    outerRing.raycast = () => {};
+    grateGroup.add(outerRing);
+
+    const innerRing = new THREE.Mesh(innerGrateGeo, m.burnerIron);
+    innerRing.rotation.x = Math.PI * 0.5;
+    innerRing.position.y = 0.004 * S;
+    innerRing.raycast = () => {};
+    grateGroup.add(innerRing);
+
+    for (let p = 0; p < 6; p++) {
+      const ang = (p / 6) * Math.PI * 2;
+      const prong = new THREE.Group();
+      prong.rotation.y = ang;
+      addBox(prong, `Prong_Arm_${p}`, [0.092, 0.006, 0], [0.072, 0.011, 0.014], m.burnerIron, undefined, {
+        collider: false,
+        castShadow: false,
+      });
+      // Raised serrated tooth notch near inner pot/wok rest
+      addBox(prong, `Prong_Tooth_${p}`, [0.068, 0.011, 0], [0.022, 0.008, 0.013], m.burnerIron, undefined, {
+        collider: false,
+        castShadow: false,
+      });
+      grateGroup.add(prong);
+    }
+    root.add(grateGroup);
+
+    // Emissive glowing cyan-blue burner flame ring
+    const flameGroup = new THREE.Group();
+    flameGroup.name = `Api_Ring_${i}`;
+    flameGroup.position.set(x * S, 0.971 * S, bz * S);
+    const ringMesh = new THREE.Mesh(flameRingGeo, m.flame);
+    ringMesh.rotation.x = Math.PI * 0.5;
+    ringMesh.raycast = () => {};
+    flameGroup.add(ringMesh);
+
+    const tipCount = 12;
+    for (let f = 0; f < tipCount; f++) {
+      const ang = (f / tipCount) * Math.PI * 2;
+      const tipPivot = new THREE.Group();
+      tipPivot.rotation.y = ang;
+      const tip = new THREE.Mesh(flameTipGeo, m.flame);
+      tip.position.set(0.056 * S, 0.008 * S, 0);
+      tip.rotation.z = -0.58;
+      tip.raycast = () => {};
+      tipPivot.add(tip);
+      flameGroup.add(tipPivot);
+    }
+    root.add(flameGroup);
+    animTargets.flameGroups.push(flameGroup);
+  }
+
+  // ---------------------------------------------------------------
+  // TUNGKU KANAN (x = -0.18 visually right): Wajan Penggorengan Cekung + Tempe Goreng
+  // ---------------------------------------------------------------
+  const wokCenterX = -0.18;
+  const wokCenterZ = 0.04;
+  const wokProfile = [
+    new THREE.Vector2(0.0, 0.0),
+    new THREE.Vector2(0.065 * S, 0.004 * S),
+    new THREE.Vector2(0.118 * S, 0.022 * S),
+    new THREE.Vector2(0.158 * S, 0.048 * S),
+    new THREE.Vector2(0.174 * S, 0.068 * S),
+    new THREE.Vector2(0.168 * S, 0.069 * S),
+    new THREE.Vector2(0.151 * S, 0.048 * S),
+    new THREE.Vector2(0.112 * S, 0.023 * S),
+    new THREE.Vector2(0.061 * S, 0.009 * S),
+    new THREE.Vector2(0.0, 0.007 * S),
+  ];
+  const wokGeo = new THREE.LatheGeometry(wokProfile, 26);
+  const wokMesh = new THREE.Mesh(wokGeo, m.pan);
+  wokMesh.name = 'Wajan_Cekung';
+  wokMesh.position.set(wokCenterX * S, 0.988 * S, wokCenterZ * S);
+  wokMesh.castShadow = true;
+  wokMesh.receiveShadow = true;
+  root.add(wokMesh);
+  ctx.walkables.push(wokMesh);
+  ctx.obstacles.push(wokMesh);
+
+  // Ergonomic black wok handle with hanging loop at the tip
+  const wokHandle = new THREE.Group();
+  wokHandle.name = 'Wajan_Gagang_Group';
+  wokHandle.position.set((wokCenterX - 0.168) * S, 1.055 * S, wokCenterZ * S);
+  wokHandle.rotation.z = -0.26;
+  addCyl(wokHandle, 'Wajan_Gagang_Stem', [-0.09, 0, 0], 0.022, 0.18, m.ink, undefined, {
+    collider: false,
+    eulerDeg: [0, 0, 90],
+    topDiameterM: 0.032,
+    castShadow: false,
+  });
+  const hangLoop = new THREE.Mesh(new THREE.TorusGeometry(0.015 * S, 0.0045 * S, 6, 12), m.ink);
+  hangLoop.rotation.x = Math.PI * 0.5;
+  hangLoop.position.set(-0.188 * S, 0, 0);
+  hangLoop.raycast = () => {};
+  wokHandle.add(hangLoop);
+  root.add(wokHandle);
+
+  // Resting stainless spatula (sodet) leaning on right inner rim of wok
+  const sodet = new THREE.Group();
+  sodet.name = 'Sodet_Wajan';
+  sodet.position.set((wokCenterX + 0.085) * S, 1.032 * S, (wokCenterZ - 0.03) * S);
+  sodet.rotation.set(0.18, -0.35, -0.48);
+  addBox(sodet, 'Sodet_Blade', [-0.035, -0.008, 0], [0.068, 0.004, 0.056], m.steel, undefined, {
+    collider: false,
+    castShadow: false,
+  });
+  addCyl(sodet, 'Sodet_Neck', [0.065, 0.008, 0], 0.009, 0.15, m.steel, undefined, {
+    collider: false,
+    eulerDeg: [0, 0, 90],
+    castShadow: false,
+  });
+  addCyl(sodet, 'Sodet_Grip', [0.165, 0.016, 0], 0.022, 0.095, m.ink, undefined, {
+    collider: false,
+    eulerDeg: [0, 0, 90],
+    castShadow: false,
+  });
+  root.add(sodet);
+
+  // Shimmering cooking oil disc + 6 crispy golden tempe goreng slices + sizzling bubbles
+  const oilDisc = addCyl(root, 'Minyak_Goreng', [wokCenterX, 1.007, wokCenterZ], 0.215, 0.006, m.oilGloss, ctx, {
+    collider: true,
+    castShadow: false,
+    segments: 22,
+  });
+  oilDisc.receiveShadow = false;
+
+  const tempeSpots: Array<[number, number, number, number]> = [
+    [-0.045, -0.028, 0.35, 0.12],
+    [0.036, -0.042, -0.65, -0.08],
+    [-0.052, 0.038, 1.15, 0.1],
+    [0.015, 0.008, -0.2, 0.05],
+    [0.055, 0.032, 0.85, -0.14],
+    [-0.006, 0.058, 0.45, 0.09],
+  ];
+  tempeSpots.forEach(([ox, oz, ry, rz], idx) => {
+    const tempe = addBox(
+      root,
+      `Tempe_Goreng_${idx}`,
+      [wokCenterX + ox, 1.014, wokCenterZ + oz],
+      [0.058, 0.014, 0.038],
+      m.tempeFried,
+      undefined,
+      { collider: false, castShadow: false }
+    );
+    tempe.rotation.set(0.06 * (idx % 2 === 0 ? 1 : -1), ry, rz);
+  });
+
+  const bubbleGeo = new THREE.SphereGeometry(0.0065 * S, 6, 5);
+  for (let b = 0; b < 10; b++) {
+    const ang = (b / 10) * Math.PI * 2 + 0.3;
+    const rad = 0.032 + (b % 4) * 0.021;
+    const bubble = new THREE.Mesh(bubbleGeo, m.oilBubble);
+    bubble.name = `Minyak_Gelembung_${b}`;
+    bubble.position.set((wokCenterX + Math.cos(ang) * rad) * S, 1.01 * S, (wokCenterZ + Math.sin(ang) * rad) * S);
+    bubble.raycast = () => {};
+    root.add(bubble);
+    animTargets.oilBubbles.push({
+      mesh: bubble,
+      baseScale: 0.75 + (b % 3) * 0.28,
+      phase: b * 0.85,
     });
   }
-  addCyl(root, 'Api_Biru_Kiri', [-0.18, 0.974, 0.04], 0.11, 0.012, m.flame, ctx, {
-    collider: false,
-    castShadow: false,
-  });
-  addCyl(root, 'Api_Biru_Kanan', [0.18, 0.974, 0.04], 0.12, 0.014, m.flame, ctx, {
-    collider: false,
-    castShadow: false,
-  });
 
-  // Wajan penggorengan on left burner
-  addCyl(root, 'Wajan_Kiri', [-0.18, 1.01, 0.04], 0.28, 0.055, m.pan, ctx, { topDiameterM: 0.34 });
-  addBox(root, 'Wajan_Kiri_Gagang', [-0.4, 1.03, 0.04], [0.18, 0.022, 0.032], m.woodDark, ctx, {
-    collider: false,
-    castShadow: false,
-  });
-
-  // Panci Sup Bertutup on right burner (named 'Wajan' for stage target hook)
+  // ---------------------------------------------------------------
+  // TUNGKU KIRI (x = +0.18 visually left): Panci Sup Stainless (Target 02, 'Wajan')
+  // ---------------------------------------------------------------
+  const panciX = 0.18;
+  const panciZ = 0.04;
   const panciGroup = new THREE.Group();
   panciGroup.name = 'Wajan';
-  addCyl(panciGroup, 'Panci_Body', [0.18, 1.045, 0.04], 0.28, 0.12, m.steel, ctx);
-  addBox(panciGroup, 'Panci_Kuping_L', [0.015, 1.06, 0.04], [0.05, 0.022, 0.05], m.ink, ctx, {
+
+  const potProfile = [
+    new THREE.Vector2(0.0, 0.0),
+    new THREE.Vector2(0.136 * S, 0.0),
+    new THREE.Vector2(0.142 * S, 0.012 * S),
+    new THREE.Vector2(0.142 * S, 0.115 * S),
+    new THREE.Vector2(0.134 * S, 0.115 * S),
+    new THREE.Vector2(0.134 * S, 0.008 * S),
+    new THREE.Vector2(0.0, 0.008 * S),
+  ];
+  const panciMesh = new THREE.Mesh(new THREE.LatheGeometry(potProfile, 26), m.steel);
+  panciMesh.name = 'Panci_Body';
+  panciMesh.position.set(panciX * S, 0.99 * S, panciZ * S);
+  panciMesh.castShadow = true;
+  panciMesh.receiveShadow = true;
+  panciGroup.add(panciMesh);
+  ctx.walkables.push(panciMesh);
+  ctx.obstacles.push(panciMesh);
+
+  // Rolled top metal lip ring
+  const panciRim = new THREE.Mesh(new THREE.TorusGeometry(0.139 * S, 0.0068 * S, 8, 26), m.steel);
+  panciRim.rotation.x = Math.PI * 0.5;
+  panciRim.position.set(panciX * S, 1.106 * S, panciZ * S);
+  panciRim.raycast = () => {};
+  panciGroup.add(panciRim);
+
+  // Two curved loop ear handles (gagang kuping) on left and right sides
+  const earGeo = new THREE.TorusGeometry(0.03 * S, 0.0065 * S, 8, 12, Math.PI);
+  for (const side of [-1, 1]) {
+    const ear = new THREE.Mesh(earGeo, m.steel);
+    ear.name = side < 0 ? 'Panci_Kuping_L' : 'Panci_Kuping_R';
+    ear.position.set((panciX + side * 0.141) * S, 1.072 * S, panciZ * S);
+    ear.rotation.set(Math.PI * 0.5, 0, side < 0 ? Math.PI * 0.5 : -Math.PI * 0.5);
+    ear.raycast = () => {};
+    panciGroup.add(ear);
+  }
+
+  // Soup broth surface inside the open stainless pot
+  const soupDisc = addCyl(panciGroup, 'Sup_Kuah', [panciX, 1.072, panciZ], 0.264, 0.014, m.soupBroth, ctx, {
+    collider: true,
+    castShadow: false,
+    segments: 24,
+  });
+  animTargets.soupSurface = soupDisc;
+
+  // Floating 3D soup contents (carrots, potatoes, green onions, meatballs)
+  const addSoupItem = (obj: THREE.Object3D, baseYM: number, phase: number) => {
+    animTargets.soupItems.push({ obj, baseY: baseYM * S, phase });
+  };
+  const carrotOffsets: Array<[number, number, number]> = [
+    [-0.045, -0.03, 0.25],
+    [0.05, 0.025, -0.2],
+    [-0.02, 0.065, 0.15],
+    [0.035, -0.058, -0.18],
+  ];
+  carrotOffsets.forEach(([ox, oz, tilt], idx) => {
+    const c = addCyl(panciGroup, `Sup_Wortel_${idx}`, [panciX + ox, 1.079, panciZ + oz], 0.042, 0.012, m.carrot, undefined, {
+      collider: false,
+      castShadow: false,
+      segments: 10,
+    });
+    c.rotation.set(tilt, idx * 0.7, tilt * 0.5);
+    addSoupItem(c, 1.079, idx * 1.1);
+  });
+
+  const potatoOffsets: Array<[number, number]> = [
+    [-0.065, 0.022],
+    [0.01, -0.015],
+    [0.062, -0.02],
+    [-0.005, 0.042],
+  ];
+  potatoOffsets.forEach(([ox, oz], idx) => {
+    const k = addBox(panciGroup, `Sup_Kentang_${idx}`, [panciX + ox, 1.077, panciZ + oz], [0.028, 0.022, 0.026], m.potato, undefined, {
+      collider: false,
+      castShadow: false,
+    });
+    k.rotation.set(0.3 * idx, 0.7 * idx, 0.2);
+    addSoupItem(k, 1.077, 0.6 + idx * 1.3);
+  });
+
+  const scallionGeo = new THREE.TorusGeometry(0.011 * S, 0.0038 * S, 6, 12);
+  const scallionOffsets: Array<[number, number]> = [
+    [-0.022, -0.062],
+    [0.042, 0.056],
+    [-0.072, -0.008],
+    [0.018, 0.022],
+    [-0.038, 0.034],
+  ];
+  scallionOffsets.forEach(([ox, oz], idx) => {
+    const sg = new THREE.Mesh(scallionGeo, m.greenLeaf);
+    sg.name = `Sup_DaunBawang_${idx}`;
+    sg.position.set((panciX + ox) * S, 1.08 * S, (panciZ + oz) * S);
+    sg.rotation.set(Math.PI * 0.5 + (idx % 2 === 0 ? 0.14 : -0.14), 0, idx * 0.5);
+    sg.raycast = () => {};
+    panciGroup.add(sg);
+    addSoupItem(sg, 1.08, 1.4 + idx * 0.9);
+  });
+
+  const baksoOffsets: Array<[number, number]> = [
+    [0.068, 0.006],
+    [-0.048, -0.055],
+    [-0.015, 0.006],
+  ];
+  baksoOffsets.forEach(([ox, oz], idx) => {
+    const b = addSph(panciGroup, `Sup_Bakso_${idx}`, [panciX + ox, 1.077, panciZ + oz], [0.046, 0.042, 0.046], m.meatball);
+    addSoupItem(b, 1.077, 2.0 + idx * 1.5);
+  });
+
+  // Slightly ajar, tilted semi-transparent glass dome lid so the simmering soup is clearly visible
+  const lidGroup = new THREE.Group();
+  lidGroup.name = 'Panci_Tutup_Group';
+  lidGroup.position.set((panciX - 0.042) * S, 1.124 * S, (panciZ + 0.026) * S);
+  lidGroup.rotation.set(0.14, 0.18, 0.34);
+
+  const glassDome = new THREE.Mesh(
+    new THREE.SphereGeometry(0.142 * S, 22, 10, 0, Math.PI * 2, 0, Math.PI * 0.42),
+    m.potGlassLid
+  );
+  glassDome.name = 'Panci_Tutup';
+  glassDome.scale.set(1, 0.28, 1);
+  glassDome.position.set(0, -0.01 * S, 0);
+  glassDome.raycast = () => {};
+  lidGroup.add(glassDome);
+
+  const lidRim = new THREE.Mesh(new THREE.TorusGeometry(0.136 * S, 0.006 * S, 8, 24), m.steel);
+  lidRim.rotation.x = Math.PI * 0.5;
+  lidRim.position.set(0, -0.002 * S, 0);
+  lidRim.raycast = () => {};
+  lidGroup.add(lidRim);
+
+  addCyl(lidGroup, 'Panci_Kenop_Base', [0, 0.031, 0], 0.028, 0.012, m.steel, undefined, {
     collider: false,
     castShadow: false,
   });
-  addBox(panciGroup, 'Panci_Kuping_R', [0.345, 1.06, 0.04], [0.05, 0.022, 0.05], m.ink, ctx, {
+  addCyl(lidGroup, 'Panci_Kenop', [0, 0.042, 0], 0.046, 0.018, m.ink, undefined, {
     collider: false,
     castShadow: false,
   });
-  addCyl(panciGroup, 'Panci_Tutup', [0.18, 1.11, 0.04], 0.29, 0.014, m.glass, ctx, {
-    collider: false,
-    castShadow: false,
-  });
-  addCyl(panciGroup, 'Panci_Kenop', [0.18, 1.132, 0.04], 0.05, 0.03, m.ink, ctx, {
-    collider: false,
-    castShadow: false,
-  });
+  panciGroup.add(lidGroup);
   root.add(panciGroup);
 
   // Tabung LPG 3 kg "Gas Melon" (powder-coated green metal)
@@ -503,13 +902,209 @@ export function buildMejaDapur(m: KitchenMaterialSet, ctx: PropBuildContext): TH
   root.name = 'Prop_MejaDapur';
   addCounterBase(root, m, 1.2, ctx);
 
-  // Talenan + sayur (small food bits castShadow = false)
+  // ---------------------------------------------------------------
+  // TALENAN KAYU BERBEVEL + BAHAN SAYUR SEGAR 3D (Target 01)
+  // ---------------------------------------------------------------
   const talenanGroup = new THREE.Group();
   talenanGroup.name = 'Talenan_Group';
-  addBox(talenanGroup, 'Talenan', [0.06, 0.8725, -0.05], [0.36, 0.025, 0.24], m.wood, ctx, { castShadow: false });
-  addSph(talenanGroup, 'Tomat', [0.13, 0.91, -0.04], [0.06, 0.06, 0.06], m.red);
-  addSph(talenanGroup, 'Wortel', [-0.01, 0.902, -0.08], [0.15, 0.04, 0.04], m.orange);
+
+  const boardW = 0.35 * S;
+  const boardD = 0.23 * S;
+  const cornerR = 0.022 * S;
+  const hw = boardW * 0.5;
+  const hd = boardD * 0.5;
+  const boardShape = new THREE.Shape();
+  boardShape.moveTo(-hw + cornerR, -hd);
+  boardShape.lineTo(hw - cornerR, -hd);
+  boardShape.quadraticCurveTo(hw, -hd, hw, -hd + cornerR);
+  boardShape.lineTo(hw, hd - cornerR);
+  boardShape.quadraticCurveTo(hw, hd, hw - cornerR, hd);
+  boardShape.lineTo(-hw + cornerR, hd);
+  boardShape.quadraticCurveTo(-hw, hd, -hw, hd - cornerR);
+  boardShape.lineTo(-hw, -hd + cornerR);
+  boardShape.quadraticCurveTo(-hw, -hd, -hw + cornerR, -hd);
+
+  const talenanGeo = new THREE.ExtrudeGeometry(boardShape, {
+    depth: 0.017 * S,
+    bevelEnabled: true,
+    bevelThickness: 0.004 * S,
+    bevelSize: 0.004 * S,
+    bevelSegments: 2,
+  });
+  talenanGeo.rotateX(-Math.PI * 0.5);
+  const talenanMesh = new THREE.Mesh(talenanGeo, m.wood);
+  talenanMesh.name = 'Talenan';
+  talenanMesh.position.set(0.06 * S, 0.864 * S, -0.05 * S);
+  talenanMesh.castShadow = false;
+  talenanMesh.receiveShadow = true;
+  talenanGroup.add(talenanMesh);
+  ctx.walkables.push(talenanMesh);
+  ctx.obstacles.push(talenanMesh);
+
+  // Subtle carved juice-groove inlay lines & brass hanging ring on board corner
+  addBox(talenanGroup, 'Talenan_Groove_F', [0.06, 0.886, -0.145], [0.31, 0.002, 0.006], m.woodDark, undefined, {
+    collider: false,
+    castShadow: false,
+  });
+  addBox(talenanGroup, 'Talenan_Groove_B', [0.06, 0.886, 0.045], [0.31, 0.002, 0.006], m.woodDark, undefined, {
+    collider: false,
+    castShadow: false,
+  });
+  addCyl(talenanGroup, 'Talenan_HoleRim', [-0.095, 0.886, -0.14], 0.022, 0.003, m.brass, undefined, {
+    collider: false,
+    castShadow: false,
+    segments: 12,
+  });
+
+  // 1. Wortel utuh terpotong + potongan wortel bulat tebal berbevel
+  addCyl(talenanGroup, 'Wortel_Batang', [-0.035, 0.903, -0.075], 0.038, 0.115, m.carrot, undefined, {
+    collider: false,
+    topDiameterM: 0.026,
+    eulerDeg: [10, 24, 88],
+    castShadow: false,
+    segments: 12,
+  });
+  const carrotCoins: Array<[number, number, number]> = [
+    [0.032, 0.892, -0.062],
+    [0.058, 0.892, -0.085],
+    [0.068, 0.892, -0.042],
+    [0.044, 0.902, -0.066],
+  ];
+  carrotCoins.forEach(([cx, cy, cz], i) => {
+    const coin = addCyl(talenanGroup, `Wortel_Iris_${i}`, [cx, cy, cz], 0.036, 0.012, m.carrot, undefined, {
+      collider: false,
+      castShadow: false,
+      segments: 12,
+    });
+    if (i === 3) coin.rotation.set(0.28, 0.2, -0.18);
+  });
+
+  // 2. Lembaran daun sawi/kol hijau bergelombang dengan tulang daun segar
+  for (let l = 0; l < 2; l++) {
+    const leafGeo = new THREE.PlaneGeometry(0.115 * S, 0.078 * S, 6, 4);
+    leafGeo.rotateX(-Math.PI * 0.5);
+    const posAttr = leafGeo.getAttribute('position') as THREE.BufferAttribute;
+    for (let v = 0; v < posAttr.count; v++) {
+      const vx = posAttr.getX(v);
+      const vz = posAttr.getZ(v);
+      const wave =
+        Math.sin((vx / S) * 38 + l * 1.4) * 0.007 * S +
+        Math.cos((vz / S) * 42) * 0.005 * S;
+      posAttr.setY(v, wave);
+    }
+    leafGeo.computeVertexNormals();
+    const leaf = new THREE.Mesh(leafGeo, m.greenLeaf);
+    leaf.name = `Daun_Sawi_${l}`;
+    leaf.position.set((0.125 + l * 0.025) * S, (0.894 + l * 0.009) * S, (-0.015 - l * 0.035) * S);
+    leaf.rotation.y = l === 0 ? 0.35 : -0.45;
+    leaf.raycast = () => {};
+    talenanGroup.add(leaf);
+
+    const stem = addCyl(
+      talenanGroup,
+      `Tulang_Sawi_${l}`,
+      [0.125 + l * 0.025, 0.896 + l * 0.009, -0.015 - l * 0.035],
+      0.012,
+      0.095,
+      m.greenStem,
+      undefined,
+      {
+        collider: false,
+        eulerDeg: [90, 0, l === 0 ? -20 : 26],
+        castShadow: false,
+        segments: 8,
+      }
+    );
+    stem.raycast = () => {};
+  }
+
+  // 3. Cabai merah keriting (3D sinuous curves + green stem nubs)
+  for (let c = 0; c < 2; c++) {
+    const ox = -0.015 + c * 0.045;
+    const oz = -0.005 + c * 0.022;
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3((ox - 0.04) * S, 0.893 * S, oz * S),
+      new THREE.Vector3((ox - 0.015) * S, 0.897 * S, (oz - 0.012) * S),
+      new THREE.Vector3((ox + 0.015) * S, 0.894 * S, (oz + 0.011) * S),
+      new THREE.Vector3((ox + 0.042) * S, 0.892 * S, (oz - 0.004) * S),
+    ]);
+    const chiliMesh = new THREE.Mesh(new THREE.TubeGeometry(curve, 12, 0.0072 * S, 7, false), m.chiliRed);
+    chiliMesh.name = `Cabai_Merah_${c}`;
+    chiliMesh.raycast = () => {};
+    talenanGroup.add(chiliMesh);
+
+    addCyl(talenanGroup, `Cabai_Tangkai_${c}`, [ox - 0.046, 0.895, oz + 0.002], 0.006, 0.016, m.greenLeaf, undefined, {
+      collider: false,
+      eulerDeg: [0, 0, 75],
+      castShadow: false,
+      segments: 6,
+    });
+  }
+
+  // 4. Potongan tempe mentah di atas talenan siap digoreng
+  const rawTempeCoords: Array<[number, number, number, number]> = [
+    [0.14, 0.895, -0.105, 0.18],
+    [0.155, 0.895, -0.062, -0.12],
+    [0.145, 0.911, -0.084, 0.42],
+  ];
+  rawTempeCoords.forEach(([tx, ty, tz, ry], idx) => {
+    const tSlab = addBox(
+      talenanGroup,
+      `Tempe_Mentah_${idx}`,
+      [tx, ty, tz],
+      [0.056, 0.016, 0.036],
+      m.tempeRaw,
+      undefined,
+      { collider: false, castShadow: false }
+    );
+    tSlab.rotation.y = ry;
+  });
+
   root.add(talenanGroup);
+
+  // Pisau Dapur Berbilah Logam di samping Talenan
+  const knifeGroup = new THREE.Group();
+  knifeGroup.name = 'Pisau_Dapur_Group';
+  knifeGroup.position.set(0.28 * S, 0.868 * S, -0.12 * S);
+  knifeGroup.rotation.y = THREE.MathUtils.degToRad(-28);
+
+  const bladeShape = new THREE.Shape();
+  bladeShape.moveTo(0, 0);
+  bladeShape.lineTo(0.145 * S, 0.004 * S);
+  bladeShape.quadraticCurveTo(0.165 * S, 0.016 * S, 0.165 * S, 0.034 * S);
+  bladeShape.lineTo(0, 0.038 * S);
+  bladeShape.closePath();
+
+  const bladeGeo = new THREE.ExtrudeGeometry(bladeShape, {
+    depth: 0.003 * S,
+    bevelEnabled: true,
+    bevelThickness: 0.001 * S,
+    bevelSize: 0.001 * S,
+    bevelSegments: 1,
+  });
+  bladeGeo.rotateX(Math.PI * 0.5);
+  const bladeMesh = new THREE.Mesh(bladeGeo, m.steel);
+  bladeMesh.name = 'Pisau_Bilah';
+  bladeMesh.position.set(0, 0.003 * S, -0.019 * S);
+  bladeMesh.raycast = () => {};
+  knifeGroup.add(bladeMesh);
+
+  addBox(knifeGroup, 'Pisau_Bolster', [-0.008, 0.006, 0], [0.016, 0.012, 0.024], m.steel, undefined, {
+    collider: false,
+    castShadow: false,
+  });
+  addBox(knifeGroup, 'Pisau_Gagang', [-0.068, 0.008, 0], [0.105, 0.015, 0.025], m.woodDark, undefined, {
+    collider: false,
+    castShadow: false,
+  });
+  for (let r = 0; r < 2; r++) {
+    addCyl(knifeGroup, `Pisau_Rivet_${r}`, [-0.04 - r * 0.045, 0.016, 0], 0.005, 0.002, m.brass, undefined, {
+      collider: false,
+      castShadow: false,
+      segments: 8,
+    });
+  }
+  root.add(knifeGroup);
 
   // Cobek Batu & Ulekan
   addCyl(root, 'Cobek_Alas', [-0.14, 0.882, -0.11], 0.21, 0.044, m.stone, ctx, {
@@ -526,21 +1121,66 @@ export function buildMejaDapur(m: KitchenMaterialSet, ctx: PropBuildContext): TH
     castShadow: false,
   });
 
-  // Magic Com (Rice Cooker)
-  addCyl(root, 'RiceCooker_Body', [-0.41, 0.98, 0.09], 0.3, 0.24, m.white, ctx);
-  addCyl(root, 'RiceCooker_Band', [-0.41, 0.96, 0.09], 0.308, 0.05, m.riceCookerBand, ctx, {
+  // Magic Com (Rice Cooker) Lengkap: rim, panel LED cook/warm, tombol, gagang lengkung, & kabel listrik
+  const rcX = -0.41;
+  const rcZ = 0.09;
+  addCyl(root, 'RiceCooker_Body', [rcX, 0.98, rcZ], 0.3, 0.24, m.white, ctx);
+  addCyl(root, 'RiceCooker_Band', [rcX, 0.96, rcZ], 0.308, 0.05, m.riceCookerBand, ctx, {
     collider: false,
     castShadow: false,
   });
-  addBox(root, 'RiceCooker_Panel', [-0.41, 0.93, -0.055], [0.08, 0.07, 0.02], m.stoveDark, ctx, {
+  const rcRim = new THREE.Mesh(new THREE.TorusGeometry(0.15 * S, 0.008 * S, 8, 24), m.steel);
+  rcRim.rotation.x = Math.PI * 0.5;
+  rcRim.position.set(rcX * S, 1.095 * S, rcZ * S);
+  rcRim.raycast = () => {};
+  root.add(rcRim);
+
+  addBox(root, 'RiceCooker_Panel', [rcX, 0.93, rcZ - 0.148], [0.095, 0.075, 0.018], m.stoveDark, ctx, {
     collider: false,
     castShadow: false,
   });
-  addSph(root, 'RiceCooker_Lid', [-0.41, 1.1, 0.09], [0.3, 0.12, 0.3], m.white);
-  addBox(root, 'RiceCooker_Handle', [-0.41, 1.165, 0.09], [0.14, 0.025, 0.03], m.ink, ctx, {
+  addBox(root, 'RiceCooker_Lever', [rcX, 0.916, rcZ - 0.159], [0.036, 0.014, 0.014], m.white, ctx, {
     collider: false,
     castShadow: false,
   });
+  addSph(root, 'RiceCooker_LED_Cook', [rcX - 0.02, 0.948, rcZ - 0.157], [0.012, 0.012, 0.008], m.ledCook);
+  addSph(root, 'RiceCooker_LED_Warm', [rcX + 0.02, 0.948, rcZ - 0.157], [0.012, 0.012, 0.008], m.ledWarm);
+  addBox(root, 'RiceCooker_LatchBtn', [rcX, 1.095, rcZ - 0.153], [0.04, 0.018, 0.016], m.steel, ctx, {
+    collider: false,
+    castShadow: false,
+  });
+
+  addSph(root, 'RiceCooker_Lid', [rcX, 1.1, rcZ], [0.3, 0.115, 0.3], m.white);
+  addCyl(root, 'RiceCooker_SteamVent', [rcX + 0.04, 1.152, rcZ + 0.04], 0.048, 0.016, m.steel, ctx, {
+    collider: false,
+    castShadow: false,
+  });
+  const rcHandleArch = new THREE.Mesh(new THREE.TorusGeometry(0.088 * S, 0.01 * S, 8, 16, Math.PI), m.ink);
+  rcHandleArch.name = 'RiceCooker_Handle';
+  rcHandleArch.position.set(rcX * S, 1.135 * S, rcZ * S);
+  rcHandleArch.raycast = () => {};
+  root.add(rcHandleArch);
+
+  // Wall outlet & curved power cord for Magic Com
+  addBox(root, 'RiceCooker_Outlet', [rcX - 0.02, 1.05, 0.3], [0.085, 0.085, 0.022], m.white, undefined, {
+    collider: false,
+    castShadow: false,
+  });
+  addBox(root, 'RiceCooker_PlugHead', [rcX - 0.02, 1.05, 0.278], [0.032, 0.032, 0.026], m.ink, undefined, {
+    collider: false,
+    castShadow: false,
+  });
+  const cordCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(rcX * S, 0.9 * S, (rcZ + 0.14) * S),
+    new THREE.Vector3((rcX - 0.04) * S, 0.875 * S, 0.25 * S),
+    new THREE.Vector3((rcX - 0.06) * S, 0.94 * S, 0.275 * S),
+    new THREE.Vector3((rcX - 0.02) * S, 1.045 * S, 0.278 * S),
+  ]);
+  const cordMesh = new THREE.Mesh(new THREE.TubeGeometry(cordCurve, 12, 0.0055 * S, 6, false), m.ink);
+  cordMesh.name = 'RiceCooker_Kabel';
+  cordMesh.castShadow = false;
+  cordMesh.raycast = () => {};
+  root.add(cordMesh);
 
   // Rak Piring Stainless
   addBox(root, 'Rak_Alas', [0.38, 0.8725, 0.12], [0.42, 0.025, 0.26], m.steel, ctx);
