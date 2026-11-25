@@ -14,7 +14,7 @@ import { IbuBossController } from '../ai/ibuBoss';
 import { SurfaceAlignedCamera } from '../camera/surfaceCamera';
 import { ProceduralAudioEngine } from '../audio/ProceduralAudioEngine';
 import { ProgressionManager } from './progression';
-import { ParticleFXManager } from '../effects/particleFx';
+import { SabotageVfxPreset, VFXManager } from '../vfx/VFXManager';
 
 export interface StageCallbacks {
   onStoryMessage: (text: string, duration: number) => void;
@@ -58,7 +58,7 @@ export class KitchenStageManager implements StageController {
     private readonly cam: SurfaceAlignedCamera,
     private readonly sound: ProceduralAudioEngine,
     public readonly progression: ProgressionManager,
-    private readonly particles: ParticleFXManager,
+    private readonly vfx: VFXManager,
     private readonly callbacks: StageCallbacks
   ) {
     this.applyUpgrades();
@@ -77,7 +77,9 @@ export class KitchenStageManager implements StageController {
       });
       this.cam.configureLevel(this.level.obstacles);
       this.sound.setStoveAmbience(true);
+      this.vfx.updateKokoStealthRim(this.koko.rig.getCarapaceMaterials(), false, false, false, 'chill', 0);
     } else {
+      this.vfx.reset();
       this.sound.stopAllLoops();
     }
   }
@@ -101,7 +103,7 @@ export class KitchenStageManager implements StageController {
     this.activeHidingSpot = null;
     this.nearbyProp = null;
 
-    this.particles.clear();
+    this.vfx.reset();
     this.koko.spawnAt(this.level.kokoSpawn);
     this.ibu.reset();
     this.cam.reset(this.level.kokoSpawn);
@@ -192,7 +194,6 @@ export class KitchenStageManager implements StageController {
     camFwd: THREE.Vector3,
     camUp: THREE.Vector3
   ): void {
-    this.particles.update(dt);
     this.animateUpdraftParticles(dt);
 
     if (this.isPaused || !this.isStarted || this.isStageCleared) {
@@ -249,6 +250,7 @@ export class KitchenStageManager implements StageController {
         this.actionTickSoundCooldown -= dt;
         if (this.actionTickSoundCooldown <= 0) {
           this.actionTickSoundCooldown = 0.16;
+          this.vfx.spawnTickParticle(this.nearbyProp.position);
           this.sound.playSabotageProgress(
             this.nearbyProp.currentProgress / Math.max(0.01, this.nearbyProp.requiredHoldDuration)
           );
@@ -323,8 +325,9 @@ export class KitchenStageManager implements StageController {
     prop.ruinedVisual.visible = true;
     for (const obj of prop.pristineObjects) obj.visible = false;
 
-    const kind = prop.type === 0 ? 'veg' : prop.type === 1 ? 'soup' : 'table';
-    this.particles.spawnBurst(kind, prop.position);
+    const preset: SabotageVfxPreset =
+      prop.type === 0 ? 'veggies' : prop.type === 1 ? 'soup_steam' : 'crumbs';
+    this.vfx.spawnSabotageBurst(prop.position, preset);
     this.cam.triggerShake(0.18, 0.25);
     this.sound.playSabotageComplete();
 

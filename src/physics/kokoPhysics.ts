@@ -12,6 +12,7 @@ import {
 } from '../types';
 import { KokoRig } from '../entities/kokoModel';
 import { CrawlSurfaceType, ProceduralAudioEngine } from '../audio/ProceduralAudioEngine';
+import { VFXManager } from '../vfx/VFXManager';
 
 export interface LevelPhysicsConfig {
   walkables: THREE.Object3D[];
@@ -69,9 +70,10 @@ export class KokoController {
   private readonly probeOffset = 0.16;
 
   constructor(
-    private readonly rig: KokoRig,
+    public readonly rig: KokoRig,
     config: LevelPhysicsConfig,
-    private readonly sound: ProceduralAudioEngine
+    private readonly sound: ProceduralAudioEngine,
+    private readonly vfx: VFXManager
   ) {
     this.walkables = config.walkables;
     this.soapyZone = config.soapyZone;
@@ -277,6 +279,7 @@ export class KokoController {
     );
     const safeBurst = burstHit ? Math.max(0, burstHit.distance - 0.25) : this.dodgeImpulse * 0.11;
     this.position.addScaledVector(dodgeDir, safeBurst);
+    this.vfx.spawnDodgeTrail(this.position, dodgeDir);
     this.sound.playDodgeWhoosh();
   }
 

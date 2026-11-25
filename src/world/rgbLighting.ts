@@ -1,11 +1,14 @@
 import * as THREE from 'three';
 import { RgbMood } from '../types';
 import { ProceduralAudioEngine } from '../audio/ProceduralAudioEngine';
+import { VFXManager } from '../vfx/VFXManager';
 
 export class RgbLightingSystem {
   public mood: RgbMood = 'chill';
   public flashbangWarningActive = false;
   public flashbangActive = false;
+  public currentPrimaryHex = 0x5b6cff;
+  public currentSecondaryHex = 0x9b59ff;
 
   private cycleTimer = 0;
   private flashTimer = 0;
@@ -22,7 +25,8 @@ export class RgbLightingSystem {
     deskPos: THREE.Vector3,
     pcPos: THREE.Vector3,
     monitorPos: THREE.Vector3,
-    private readonly sound: ProceduralAudioEngine
+    private readonly sound: ProceduralAudioEngine,
+    private readonly vfx: VFXManager
   ) {
     this.ambientLight = new THREE.HemisphereLight(0x6e78c8, 0x1c1c2a, 0.85);
     scene.add(this.ambientLight);
@@ -84,12 +88,15 @@ export class RgbLightingSystem {
         this.mood = 'chill';
       } else {
         // Intense white glare
+        this.currentPrimaryHex = 0xffffff;
+        this.currentSecondaryHex = 0xffffff;
         this.ambientLight.intensity = 1.65;
         this.monitorLight.color.setHex(0xffffff);
         this.monitorLight.intensity = 7.5;
         this.rgbDeskLight.color.setHex(0xffffff);
         this.rgbDeskLight.intensity = 4.2;
         this.setLedColor(0xffffff);
+        this.vfx.syncRgbGlow(0xffffff, 0xffffff, 'flashbang');
         return;
       }
     }
@@ -112,6 +119,8 @@ export class RgbLightingSystem {
   }
 
   private applyColors(primary: number, secondary: number, deskIntensity: number): void {
+    this.currentPrimaryHex = primary;
+    this.currentSecondaryHex = secondary;
     this.ambientLight.intensity = 0.92;
     this.rgbDeskLight.color.setHex(primary);
     this.rgbDeskLight.intensity = deskIntensity;
@@ -120,6 +129,7 @@ export class RgbLightingSystem {
     this.monitorLight.color.setHex(primary);
     this.monitorLight.intensity = 1.85;
     this.setLedColor(primary);
+    this.vfx.syncRgbGlow(primary, secondary, this.mood);
   }
 
   private setLedColor(hex: number): void {

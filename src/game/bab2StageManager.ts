@@ -14,7 +14,7 @@ import { GamerBossController } from '../ai/gamerBoss';
 import { SurfaceAlignedCamera } from '../camera/surfaceCamera';
 import { ProceduralAudioEngine } from '../audio/ProceduralAudioEngine';
 import { ProgressionManager } from './progression';
-import { ParticleFXManager } from '../effects/particleFx';
+import { VFXManager } from '../vfx/VFXManager';
 import { StageCallbacks } from './stageManager';
 
 export class GamerRoomStageManager implements StageController {
@@ -46,7 +46,7 @@ export class GamerRoomStageManager implements StageController {
     private readonly cam: SurfaceAlignedCamera,
     private readonly sound: ProceduralAudioEngine,
     public readonly progression: ProgressionManager,
-    private readonly particles: ParticleFXManager,
+    private readonly vfx: VFXManager,
     private readonly callbacks: StageCallbacks
   ) {
     this.applyUpgrades();
@@ -66,6 +66,7 @@ export class GamerRoomStageManager implements StageController {
       });
       this.cam.configureLevel(this.room.obstacles, this.room.bounds);
     } else {
+      this.vfx.reset();
       this.sound.stopAllLoops();
     }
   }
@@ -90,7 +91,7 @@ export class GamerRoomStageManager implements StageController {
     this.activeHidingSpot = null;
     this.nearbyProp = null;
 
-    this.particles.clear();
+    this.vfx.reset();
     this.koko.spawnAt(this.room.kokoSpawn);
     this.gamer.reset();
     this.room.fan.reset();
@@ -141,9 +142,8 @@ export class GamerRoomStageManager implements StageController {
     camFwd: THREE.Vector3,
     camUp: THREE.Vector3
   ): void {
-    this.particles.update(dt);
-
     if (this.isPaused || !this.isStarted || this.isStageCleared) {
+      this.vfx.updateSwatterSparks(dt, false, 0);
       this.sound.stopAllLoops();
       this.cam.update(
         dt,
@@ -199,6 +199,7 @@ export class GamerRoomStageManager implements StageController {
         this.actionTickSoundCooldown -= dt;
         if (this.actionTickSoundCooldown <= 0) {
           this.actionTickSoundCooldown = 0.16;
+          this.vfx.spawnTickParticle(this.nearbyProp.position, 0x59e0ba);
           this.sound.playSabotageProgress(
             this.nearbyProp.currentProgress / Math.max(0.01, this.nearbyProp.requiredHoldDuration)
           );
@@ -234,6 +235,16 @@ export class GamerRoomStageManager implements StageController {
       this.activeHidingSpot
     );
 
+    this.vfx.updateSwatterSparks(dt, this.gamer.isTelegraphingSwat, this.gamer.windupProgress);
+    this.vfx.updateKokoStealthRim(
+      this.koko.rig.getCarapaceMaterials(),
+      true,
+      this.activeHidingSpot?.safety === 'Safe',
+      this.isKokoOnDesk(),
+      this.room.rgbLighting.mood,
+      this.room.rgbLighting.currentPrimaryHex
+    );
+
     const combatFov =
       this.gamer.state === 'SWAT_ATTACK' || this.gamer.state === 'PANIC_DEFEATED';
     this.cam.update(
@@ -266,6 +277,15 @@ export class GamerRoomStageManager implements StageController {
     }
   }
 
+  private isKokoOnDesk(): boolean {
+    return (
+      this.koko.position.x >= this.room.deskZoneMin.x &&
+      this.koko.position.x <= this.room.deskZoneMax.x &&
+      this.koko.position.y >= this.room.deskZoneMin.y &&
+      this.koko.position.z >= this.room.deskZoneMin.z
+    );
+  }
+
   private completeBab2Target(prop: InteractiveProp): void {
     prop.currentProgress = prop.requiredHoldDuration;
     prop.isRuined = true;
@@ -291,7 +311,7 @@ export class GamerRoomStageManager implements StageController {
     this.sound.playSabotageComplete();
     if (idx === 0) {
       // Target 01: Kontaminasi Minuman
-      this.particles.spawnBurst('drink_splash', prop.position);
+      this.vfx.spawnSabotageBurst(prop.position, 'soda_fizz');
       this.cam.triggerShake(0.2, 0.25);
       this.gamer.triggerDrinkChoke(this.koko.position);
       this.currentObjectiveIndex = 1;
@@ -302,17 +322,12 @@ export class GamerRoomStageManager implements StageController {
       );
     } else if (idx === 1) {
       // Target 02: Sabotase Koneksi LAN
-      this.particles.spawnBurst('lan_sparks', prop.position);
+      this.vfx.spawnSabotageBurst(prop.position, 'lan_sparks');
       this.room.setMonitorConnectionLost(true);
       this.cam.triggerShake(0.42, 0.45);
 
       // Desk slam drops Koko if crawling on top/sides of the desk
-      const onDesk =
-        this.koko.position.x >= this.room.deskZoneMin.x &&
-        this.koko.position.x <= this.room.deskZoneMax.x &&
-        this.koko.position.y >= this.room.deskZoneMin.y &&
-        this.koko.position.z >= this.room.deskZoneMin.z;
-      if (onDesk) {
+      if (this.isKokoOnDesk()) {
         this.koko.forceDropFromSurface(-5.0);
       }
 
@@ -325,7 +340,7 @@ export class GamerRoomStageManager implements StageController {
       );
     } else {
       // Target 03: Teror di Layar Monitor -> Finale Bab 02
-      this.particles.spawnBurst('screen_terror', prop.position);
+      this.vfx.spawnSabotageBurst(prop.position, 'screen_dust');
       this.isFinaleActive = true;
       this.finaleTimer = 0;
       this.koko.stageInvincible = true;

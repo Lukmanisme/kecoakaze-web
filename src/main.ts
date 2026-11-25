@@ -15,7 +15,7 @@ import { GamerRoomStageManager } from './game/bab2StageManager';
 import { ProceduralAudioEngine } from './audio/ProceduralAudioEngine';
 import { HUDController } from './ui/hudController';
 import { ProgressionManager } from './game/progression';
-import { ParticleFXManager } from './effects/particleFx';
+import { VFXManager } from './vfx/VFXManager';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -30,11 +30,11 @@ const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerH
 
 const sound = new ProceduralAudioEngine();
 const progression = new ProgressionManager();
-const particles = new ParticleFXManager(scene);
+const vfx = new VFXManager(scene);
 
 // Build both environments cleanly so stage switching is instant without page reload
 const kitchenLevel = buildKitchenLevel(scene);
-const gamerRoom = buildGamerRoomLevel(scene, sound);
+const gamerRoom = buildGamerRoomLevel(scene, sound, vfx);
 
 const kokoRig = new KokoRig();
 scene.add(kokoRig.root);
@@ -45,6 +45,7 @@ scene.add(ibuRig.root);
 
 const gamerRig = new GamerRig();
 scene.add(gamerRig.root);
+vfx.attachSwatterRig(gamerRig.getRacketGroup());
 
 const koko = new KokoController(
   kokoRig,
@@ -53,7 +54,8 @@ const koko = new KokoController(
     soapyZone: kitchenLevel.soapyZone,
     updraftZone: kitchenLevel.updraftZone,
   },
-  sound
+  sound,
+  vfx
 );
 
 const surfaceCam = new SurfaceAlignedCamera(camera, kitchenLevel.obstacles);
@@ -99,7 +101,7 @@ bab1Stage = new KitchenStageManager(
   surfaceCam,
   sound,
   progression,
-  particles,
+  vfx,
   sharedCallbacks
 );
 
@@ -111,7 +113,7 @@ bab2Stage = new GamerRoomStageManager(
   surfaceCam,
   sound,
   progression,
-  particles,
+  vfx,
   sharedCallbacks
 );
 
@@ -160,6 +162,7 @@ function tick(): void {
   surfaceCam.getUp(camUp);
 
   activeStage.update(dt, now, input, camFwd, camUp);
+  vfx.update(dt);
   if (!activeStage.isStarted || activeStage.isPaused || activeStage.isStageCleared) {
     sound.stopAllLoops();
   }

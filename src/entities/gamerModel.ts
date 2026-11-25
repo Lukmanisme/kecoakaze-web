@@ -213,6 +213,10 @@ export class GamerRig {
     this.head.add(this.headsetTiltedGroup);
   }
 
+  public getRacketGroup(): THREE.Group {
+    return this.racketGroup;
+  }
+
   public getEyeWorldPosition(): THREE.Vector3 {
     const p = new THREE.Vector3(0, 1.9 * this.worldScale, 0.24 * this.worldScale);
     return p.applyQuaternion(this.root.quaternion).add(this.root.position);

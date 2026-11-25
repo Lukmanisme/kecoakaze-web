@@ -3,23 +3,12 @@ import { WORLD_SCALE as S } from '../types';
 import { Palette, createToonMaterial } from '../style/palette';
 import { KokoController } from '../physics/kokoPhysics';
 import { ProceduralAudioEngine } from '../audio/ProceduralAudioEngine';
-
-interface WindSpeck {
-  dist: number;
-  radial: number;
-  angle: number;
-  speed: number;
-}
+import { VFXManager } from '../vfx/VFXManager';
 
 export class OscillatingFan {
   public readonly root = new THREE.Group();
   private readonly headPivot = new THREE.Group();
   private readonly blades = new THREE.Group();
-  private readonly windGroup = new THREE.Group();
-
-  private readonly specks: WindSpeck[] = [];
-  private readonly speckPoints: THREE.Points;
-  private readonly streamlines: THREE.LineSegments;
 
   // 4s sweep Kasur -> Meja, 1s pause, 4s sweep back, 1s pause (total 10s cycle)
   private cycleTime = 0;
@@ -40,7 +29,8 @@ export class OscillatingFan {
     position: THREE.Vector3,
     walkables: THREE.Object3D[],
     obstacles: THREE.Object3D[],
-    private readonly sound: ProceduralAudioEngine
+    private readonly sound: ProceduralAudioEngine,
+    vfx: VFXManager
   ) {
     this.root.name = 'Oscillating_Fan';
     this.root.position.copy(position);
@@ -101,58 +91,8 @@ export class OscillatingFan {
       this.blades.add(b);
     }
 
-    // Wind Streamlines & Floating Dust Particles (attached to headPivot so they rotate with head!)
-    this.windGroup.position.set(0, 0, 0.22 * S);
-    this.headPivot.add(this.windGroup);
-
-    const streamCount = 12;
-    const streamPositions = new Float32Array(streamCount * 6);
-    for (let i = 0; i < streamCount; i++) {
-      const ang = (i / streamCount) * Math.PI * 2;
-      const r0 = 0.12 * S + (i % 3) * 0.06 * S;
-      const r1 = 0.75 * S + (i % 3) * 0.45 * S;
-      const z0 = (i % 4) * 0.6 * S;
-      const z1 = z0 + 2.2 * S;
-      streamPositions[i * 6 + 0] = Math.cos(ang) * r0;
-      streamPositions[i * 6 + 1] = Math.sin(ang) * r0 * 0.45;
-      streamPositions[i * 6 + 2] = z0;
-      streamPositions[i * 6 + 3] = Math.cos(ang) * r1;
-      streamPositions[i * 6 + 4] = Math.sin(ang) * r1 * 0.45;
-      streamPositions[i * 6 + 5] = z1;
-    }
-    const streamGeo = new THREE.BufferGeometry();
-    streamGeo.setAttribute('position', new THREE.BufferAttribute(streamPositions, 3));
-    const streamMat = new THREE.LineBasicMaterial({
-      color: 0x99f3ff,
-      transparent: true,
-      opacity: 0.26,
-    });
-    this.streamlines = new THREE.LineSegments(streamGeo, streamMat);
-    this.streamlines.raycast = () => {};
-    this.windGroup.add(this.streamlines);
-
-    const speckCount = 65;
-    const speckPos = new Float32Array(speckCount * 3);
-    for (let i = 0; i < speckCount; i++) {
-      const d = Math.random() * this.coneLength;
-      this.specks.push({
-        dist: d,
-        radial: 0.12 + Math.random() * 0.85,
-        angle: Math.random() * Math.PI * 2,
-        speed: 14 + Math.random() * 10,
-      });
-    }
-    const speckGeo = new THREE.BufferGeometry();
-    speckGeo.setAttribute('position', new THREE.BufferAttribute(speckPos, 3));
-    const speckMat = new THREE.PointsMaterial({
-      color: 0xb8f6ff,
-      size: 0.22,
-      transparent: true,
-      opacity: 0.62,
-    });
-    this.speckPoints = new THREE.Points(speckGeo, speckMat);
-    this.speckPoints.raycast = () => {};
-    this.windGroup.add(this.speckPoints);
+    // Wind Streamlines & 40 Floating Dust Motes managed centrally by VFXManager
+    vfx.attachFanWindRig(this.headPivot, this.coneLength, this.coneHalfAngle);
   }
 
   public reset(): void {
@@ -204,38 +144,6 @@ export class OscillatingFan {
 
     this.headPivot.rotation.y =
       this.baseYaw - this.halfSweepRad + sweepFactor * (this.halfSweepRad * 2);
-
-    // Update wind dust specks & streamline pulse
-    const attr = this.speckPoints.geometry.getAttribute('position') as THREE.BufferAttribute;
-    for (let i = 0; i < this.specks.length; i++) {
-      const sp = this.specks[i];
-      sp.dist += sp.speed * dt;
-      if (sp.dist > this.coneLength) {
-        sp.dist = 0.1;
-      }
-      const maxR = Math.max(0.25 * S, Math.tan(this.coneHalfAngle) * sp.dist);
-      const r = sp.radial * maxR;
-      attr.setXYZ(
-        i,
-        Math.cos(sp.angle) * r,
-        Math.sin(sp.angle) * r * 0.55,
-        sp.dist
-      );
-    }
-    attr.needsUpdate = true;
-
-    const streamPos = this.streamlines.geometry.getAttribute('position') as THREE.BufferAttribute;
-    const shift = (this.cycleTime * 8) % (2.5 * S);
-    for (let i = 0; i < streamPos.count; i += 2) {
-      const z0 = ((i * 0.35 + shift) % (this.coneLength - 2 * S));
-      const z1 = z0 + 1.9 * S;
-      const ang = (i * 0.52);
-      const r0 = 0.15 * S + Math.tan(this.coneHalfAngle * 0.65) * z0 * 0.45;
-      const r1 = 0.15 * S + Math.tan(this.coneHalfAngle * 0.65) * z1 * 0.45;
-      streamPos.setXYZ(i, Math.cos(ang) * r0, Math.sin(ang) * r0 * 0.45, z0);
-      streamPos.setXYZ(i + 1, Math.cos(ang) * r1, Math.sin(ang) * r1 * 0.45, z1);
-    }
-    streamPos.needsUpdate = true;
 
     // Physics Interaction & Spatial Wind Audio with Koko
     const headPos = this.getHeadWorldPosition();

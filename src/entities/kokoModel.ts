@@ -26,6 +26,7 @@ export class KokoRig {
   private readonly wingRight: THREE.Group;
   private readonly antennaLeft: THREE.Group;
   private readonly antennaRight: THREE.Group;
+  private readonly carapaceMaterials: THREE.MeshToonMaterial[];
 
   private gaitPhase = 0;
   private flightBlend = 0;
@@ -54,6 +55,7 @@ export class KokoRig {
       side: THREE.DoubleSide,
     });
     const legMat = createToonMaterial(0xa65a35);
+    this.carapaceMaterials = [bodyMat, pronotumMat, wingMat];
 
     // Abdomen & Thorax & Head (Three.js +Z forward)
     const abdomen = new THREE.Mesh(new THREE.SphereGeometry(0.18, 14, 10), bodyMat);
@@ -210,6 +212,10 @@ export class KokoRig {
     shadowGeom.rotateX(-Math.PI / 2);
     this.blobShadow = new THREE.Mesh(shadowGeom, shadowMat);
     this.blobShadow.raycast = () => {};
+  }
+
+  public getCarapaceMaterials(): THREE.MeshToonMaterial[] {
+    return this.carapaceMaterials;
   }
 
   public updateAnimation(dt: number, time: number, state: KokoState, planarSpeed: number): void {

@@ -10,6 +10,7 @@ import { PropBuildContext, addBox, addCyl, addSph } from './kitchenProps';
 import { OscillatingFan } from './oscillatingFan';
 import { RgbLightingSystem } from './rgbLighting';
 import { ProceduralAudioEngine } from '../audio/ProceduralAudioEngine';
+import { VFXManager } from '../vfx/VFXManager';
 
 const ROOM_W = 8.0;
 const ROOM_D = 6.5;
@@ -35,7 +36,8 @@ export interface GamerRoomData {
 
 export function buildGamerRoomLevel(
   scene: THREE.Scene,
-  sound: ProceduralAudioEngine
+  sound: ProceduralAudioEngine,
+  vfx: VFXManager
 ): GamerRoomData {
   const root = new THREE.Group();
   root.name = 'Environment_GamerRoom';
@@ -251,19 +253,25 @@ export function buildGamerRoomLevel(
     new THREE.Vector3(-3.35 * S, 0, -2.35 * S),
     ctx.walkables,
     ctx.obstacles,
-    sound
+    sound,
+    vfx
   );
   root.add(fan.root);
 
-  // 7. RGB Lighting System + Flashbang Glare
+  // 7. RGB Lighting System + Volumetric Glow + Flashbang Glare
+  const deskCenterPos = new THREE.Vector3(deskCenterX * S, deskTopY * S, deskZ * S);
+  const pcCenterPos = new THREE.Vector3(pcX * S, (deskTopY + 0.3) * S, pcZ * S);
+  const monitorCenterPos = new THREE.Vector3(monitorX * S, (deskTopY + 0.42) * S, monitorZ * S);
   const rgbLighting = new RgbLightingSystem(
     root as unknown as THREE.Scene,
     ledMeshes,
-    new THREE.Vector3(deskCenterX * S, deskTopY * S, deskZ * S),
-    new THREE.Vector3(pcX * S, (deskTopY + 0.3) * S, pcZ * S),
-    new THREE.Vector3(monitorX * S, (deskTopY + 0.42) * S, monitorZ * S),
-    sound
+    deskCenterPos,
+    pcCenterPos,
+    monitorCenterPos,
+    sound,
+    vfx
   );
+  vfx.attachRgbGlowRig(root, deskCenterPos, pcCenterPos, monitorCenterPos);
 
   // 8. 3 Target Sabotase Bab 02
   const interactiveProps = createBab2Targets(
