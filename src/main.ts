@@ -16,14 +16,17 @@ import { ProceduralAudioEngine } from './audio/ProceduralAudioEngine';
 import { HUDController } from './ui/hudController';
 import { ProgressionManager } from './game/progression';
 import { VFXManager } from './vfx/VFXManager';
+import { ProceduralTextures } from './graphics/ProceduralTextures';
+import { QualityManager } from './graphics/QualityManager';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.08, 160);
@@ -31,10 +34,12 @@ const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerH
 const sound = new ProceduralAudioEngine();
 const progression = new ProgressionManager();
 const vfx = new VFXManager(scene);
+const textures = new ProceduralTextures(renderer.capabilities.getMaxAnisotropy());
+scene.environment = textures.buildIndoorEnvironment(renderer);
 
-// Build both environments cleanly so stage switching is instant without page reload
-const kitchenLevel = buildKitchenLevel(scene);
-const gamerRoom = buildGamerRoomLevel(scene, sound, vfx);
+// Build both environments cleanly using cached PBR textures
+const kitchenLevel = buildKitchenLevel(scene, textures);
+const gamerRoom = buildGamerRoomLevel(scene, sound, vfx, textures);
 
 const kokoRig = new KokoRig();
 scene.add(kokoRig.root);
@@ -60,6 +65,9 @@ const koko = new KokoController(
 
 const surfaceCam = new SurfaceAlignedCamera(camera, kitchenLevel.obstacles);
 const hud = new HUDController(surfaceCam, sound);
+
+const quality = new QualityManager(renderer, textures, vfx, (msg) => hud.showToast(msg));
+quality.registerShadowLights([kitchenLevel.shadowLight, gamerRoom.shadowLight]);
 
 let bab1Stage!: KitchenStageManager;
 let bab2Stage!: GamerRoomStageManager;
@@ -124,6 +132,7 @@ function selectAndLoadStage(id: StageId, startImmediately: boolean): void {
   selectedStageId = id;
   bab1Stage.setActive(id === 'bab1');
   bab2Stage.setActive(id === 'bab2');
+  quality.setActiveShadowLight(id === 'bab1' ? kitchenLevel.shadowLight : gamerRoom.shadowLight);
   activeStage = id === 'bab1' ? bab1Stage : bab2Stage;
   activeStage.isPaused = false;
   activeStage.isStarted = startImmediately;
@@ -137,12 +146,14 @@ hud.bindStageBridge({
   getSelectedStageId: () => selectedStageId,
   selectAndLoadStage,
   progression,
+  quality,
   isFlashbangGlare: () => activeStage === bab2Stage && bab2Stage.isFlashbangGlare,
 });
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
+  renderer.setPixelRatio(quality.getPreset().pixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
@@ -154,8 +165,12 @@ function tick(): void {
   requestAnimationFrame(tick);
 
   const now = performance.now() * 0.001;
-  const dt = Math.min(0.05, Math.max(0.001, now - lastTime));
+  const rawDt = Math.max(0.0001, now - lastTime);
+  const dt = Math.min(0.05, rawDt);
   lastTime = now;
+
+  const isActiveGameplay = activeStage.isStarted && !activeStage.isPaused && !activeStage.isStageCleared;
+  quality.recordFrame(rawDt, isActiveGameplay);
 
   const input = hud.consumeInput();
   surfaceCam.getForward(camFwd);
@@ -163,7 +178,7 @@ function tick(): void {
 
   activeStage.update(dt, now, input, camFwd, camUp);
   vfx.update(dt);
-  if (!activeStage.isStarted || activeStage.isPaused || activeStage.isStageCleared) {
+  if (!isActiveGameplay) {
     sound.stopAllLoops();
   }
 

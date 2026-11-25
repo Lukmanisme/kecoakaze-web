@@ -81,7 +81,6 @@ export class KokoController {
   private readonly tmpTargetVisual = new THREE.Vector3();
   private readonly tmpMatrix3 = new THREE.Matrix3();
   private readonly tmpWorldNormal = new THREE.Vector3();
-  private readonly identityQuat = new THREE.Quaternion();
 
   constructor(
     public readonly rig: KokoRig,
@@ -646,28 +645,32 @@ export class KokoController {
       this.rig.blobShadow.visible = true;
       this.rig.blobShadow.position
         .copy(this.visualPosition)
-        .addScaledVector(this.surfaceNormal, 0.008);
+        .addScaledVector(this.surfaceNormal, 0.002);
       this.rig.blobShadow.quaternion.copy(this.quaternion);
-      this.rig.blobShadow.scale.setScalar(1);
-      (this.rig.blobShadow.material as THREE.MeshBasicMaterial).opacity = 0.72;
+      this.rig.blobShadow.scale.setScalar(1.0);
+      (this.rig.blobShadow.material as THREE.MeshBasicMaterial).opacity = 0.85;
       return;
     }
 
     const hit = this.raycastWalkables(
-      this.tmpOrigin.copy(this.position).add(new THREE.Vector3(0, 0.1, 0)),
+      this.tmpOrigin.set(this.position.x, this.position.y + 0.1, this.position.z),
       this.tmpDir.set(0, -1, 0),
-      24
+      26
     );
     if (hit) {
+      const hitNormal = this.getWorldNormal(hit);
       this.rig.blobShadow.visible = true;
-      this.rig.blobShadow.position.copy(hit.point).add(new THREE.Vector3(0, 0.015, 0));
-      this.rig.blobShadow.quaternion.copy(this.identityQuat);
+      this.rig.blobShadow.position.copy(hit.point).addScaledVector(hitNormal, 0.002);
+      this.rig.blobShadow.quaternion.setFromUnitVectors(
+        this.tmpDir.set(0, 1, 0),
+        hitNormal
+      );
       const height = Math.max(0, this.position.y - hit.point.y);
-      const scale = Math.max(0.4, 1 - height * 0.06);
+      const scale = Math.max(0.28, 1.0 - height * 0.08);
       this.rig.blobShadow.scale.setScalar(scale);
       (this.rig.blobShadow.material as THREE.MeshBasicMaterial).opacity = Math.max(
-        0.15,
-        0.75 - height * 0.05
+        0.14,
+        0.8 - height * 0.055
       );
     } else {
       this.rig.blobShadow.visible = false;

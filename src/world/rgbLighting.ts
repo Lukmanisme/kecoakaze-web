@@ -33,14 +33,17 @@ export class RgbLightingSystem {
 
     this.rgbDeskLight = new THREE.PointLight(0x7c4dff, 2.0, 26, 1.3);
     this.rgbDeskLight.position.copy(deskPos).add(new THREE.Vector3(0, 1.5, 0));
+    this.rgbDeskLight.castShadow = false;
     scene.add(this.rgbDeskLight);
 
     this.pcLight = new THREE.PointLight(0x00e5ff, 1.4, 16, 1.4);
     this.pcLight.position.copy(pcPos).add(new THREE.Vector3(0, 1.2, 0));
+    this.pcLight.castShadow = false;
     scene.add(this.pcLight);
 
     this.monitorLight = new THREE.PointLight(0x88ccff, 1.8, 22, 1.2);
     this.monitorLight.position.copy(monitorPos).add(new THREE.Vector3(0, 0.5, -1.5));
+    this.monitorLight.castShadow = false;
     scene.add(this.monitorLight);
   }
 

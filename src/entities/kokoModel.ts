@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { KokoState } from '../types';
 import {
   createPronotumTexture,
-  createToonMaterial,
   createWingTexture,
 } from '../style/palette';
 
@@ -37,7 +36,7 @@ export class KokoRig {
   private readonly wingRight: THREE.Group;
   private readonly antennaLeft: AntennaRig;
   private readonly antennaRight: AntennaRig;
-  private readonly carapaceMaterials: THREE.MeshToonMaterial[];
+  private readonly carapaceMaterials: THREE.MeshStandardMaterial[];
 
   private gaitPhase = 0;
   private flightBlend = 0;
@@ -61,20 +60,42 @@ export class KokoRig {
     this.body.add(this.legsGroup);
     this.visual.add(this.body);
 
-    const bodyMat = createToonMaterial(0x5e2e1d, { emissive: 0x162b22, emissiveIntensity: 0.35 });
-    const eyeMat = createToonMaterial(0x15110f, { emissive: 0x1a1a22, emissiveIntensity: 0.8 });
-    const pronotumMat = createToonMaterial(0xffffff, {
-      map: createPronotumTexture(),
-      emissive: 0x203b30,
-      emissiveIntensity: 0.25,
+    const bodyMat = new THREE.MeshStandardMaterial({
+      color: 0x5e2e1d,
+      roughness: 0.36,
+      metalness: 0.08,
+      emissive: 0x162b22,
+      emissiveIntensity: 0.3,
     });
-    const wingMat = createToonMaterial(0xffffff, {
+    const eyeMat = new THREE.MeshStandardMaterial({
+      color: 0x15110f,
+      roughness: 0.12,
+      metalness: 0.1,
+      emissive: 0x1a1a22,
+      emissiveIntensity: 0.7,
+    });
+    const pronotumMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: createPronotumTexture(),
+      roughness: 0.34,
+      metalness: 0.08,
+      emissive: 0x203b30,
+      emissiveIntensity: 0.22,
+    });
+    const wingMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
       map: createWingTexture(),
+      roughness: 0.38,
+      metalness: 0.06,
       emissive: 0x1d342a,
-      emissiveIntensity: 0.25,
+      emissiveIntensity: 0.22,
       side: THREE.DoubleSide,
     });
-    const legMat = createToonMaterial(0xa65a35);
+    const legMat = new THREE.MeshStandardMaterial({
+      color: 0xa65a35,
+      roughness: 0.45,
+      metalness: 0.04,
+    });
     this.carapaceMaterials = [bodyMat, pronotumMat, wingMat];
 
     // Abdomen & Thorax & Head (Three.js +Z forward)
@@ -265,16 +286,17 @@ export class KokoRig {
       }
     }
 
-    // Soft Blob Shadow Decal (stays surface-aligned directly beneath Koko)
+    // Soft Contact Shadow Decal beneath Koko (always active even on LOW quality tier)
     const shadowCanvas = document.createElement('canvas');
-    shadowCanvas.width = 64;
-    shadowCanvas.height = 64;
+    shadowCanvas.width = 128;
+    shadowCanvas.height = 128;
     const sctx = shadowCanvas.getContext('2d')!;
-    const grad = sctx.createRadialGradient(32, 32, 4, 32, 32, 30);
-    grad.addColorStop(0, 'rgba(14, 26, 36, 0.55)');
-    grad.addColorStop(1, 'rgba(14, 26, 36, 0)');
+    const grad = sctx.createRadialGradient(64, 64, 6, 64, 64, 60);
+    grad.addColorStop(0, 'rgba(8, 14, 20, 0.72)');
+    grad.addColorStop(0.52, 'rgba(8, 14, 20, 0.36)');
+    grad.addColorStop(1, 'rgba(8, 14, 20, 0)');
     sctx.fillStyle = grad;
-    sctx.fillRect(0, 0, 64, 64);
+    sctx.fillRect(0, 0, 128, 128);
 
     const shadowTex = new THREE.CanvasTexture(shadowCanvas);
     const shadowMat = new THREE.MeshBasicMaterial({
@@ -282,13 +304,13 @@ export class KokoRig {
       transparent: true,
       depthWrite: false,
     });
-    const shadowGeom = new THREE.PlaneGeometry(0.55, 0.72);
+    const shadowGeom = new THREE.PlaneGeometry(0.62, 0.78);
     shadowGeom.rotateX(-Math.PI / 2);
     this.blobShadow = new THREE.Mesh(shadowGeom, shadowMat);
     this.blobShadow.raycast = () => {};
   }
 
-  public getCarapaceMaterials(): THREE.MeshToonMaterial[] {
+  public getCarapaceMaterials(): THREE.MeshStandardMaterial[] {
     return this.carapaceMaterials;
   }
 

@@ -49,11 +49,14 @@ export class VFXManager {
 
   // 2. Fan Wind Streamlines (7 curved additive ribbons with UV scroll) & 40 Dust Motes
   private fanWindGroup: THREE.Group | null = null;
+  private readonly fanRibbonMeshes: THREE.Mesh[] = [];
   private fanStreamTex: THREE.CanvasTexture | null = null;
   private fanDustPoints: THREE.Points | null = null;
   private readonly fanDustMotes: FanDustMote[] = [];
   private fanConeLength = 6.6 * S;
   private fanConeHalfAngle = THREE.MathUtils.degToRad(24);
+  private particleScale = 1.0;
+  private enableAmbientDust = true;
 
   // 3. Electric Swatter Zig-Zag Arcs & Flash
   private swatterLines: THREE.LineSegments | null = null;
@@ -161,6 +164,7 @@ export class VFXManager {
       const ribbonMesh = new THREE.Mesh(ribbonGeo, ribbonMat);
       ribbonMesh.raycast = () => {};
       group.add(ribbonMesh);
+      this.fanRibbonMeshes.push(ribbonMesh);
     }
 
     // 40 Micro Dust Motes
@@ -189,6 +193,23 @@ export class VFXManager {
     pts.raycast = () => {};
     group.add(pts);
     this.fanDustPoints = pts;
+    this.applyFanWindQuality();
+  }
+
+  public setQualityConfig(particleScale: number, enableAmbientDust: boolean): void {
+    this.particleScale = Math.max(0.15, Math.min(1.0, particleScale));
+    this.enableAmbientDust = enableAmbientDust;
+    this.applyFanWindQuality();
+  }
+
+  private applyFanWindQuality(): void {
+    const visibleRibbons = Math.max(1, Math.round(this.fanRibbonMeshes.length * this.particleScale));
+    for (let i = 0; i < this.fanRibbonMeshes.length; i++) {
+      this.fanRibbonMeshes[i].visible = i < visibleRibbons;
+    }
+    if (this.fanDustPoints) {
+      this.fanDustPoints.visible = this.enableAmbientDust;
+    }
   }
 
   private buildRibbonGeometry(
@@ -226,7 +247,7 @@ export class VFXManager {
     if (this.fanStreamTex) {
       this.fanStreamTex.offset.x = (this.fanStreamTex.offset.x - dt * 2.4) % 1;
     }
-    if (this.fanDustPoints) {
+    if (this.fanDustPoints && this.enableAmbientDust) {
       const attr = this.fanDustPoints.geometry.getAttribute('position') as THREE.BufferAttribute;
       for (let i = 0; i < DUST_COUNT; i++) {
         const m = this.fanDustMotes[i];
@@ -292,7 +313,8 @@ export class VFXManager {
   }
 
   public spawnDodgeTrail(position: THREE.Vector3, velocityDir: THREE.Vector3): void {
-    for (let i = 0; i < 8; i++) {
+    const trailCount = Math.max(2, Math.round(8 * this.particleScale));
+    for (let i = 0; i < trailCount; i++) {
       const p = this.allocParticle();
       p.pos.set(
         position.x + (Math.random() - 0.5) * 0.35,
@@ -326,7 +348,8 @@ export class VFXManager {
     scaleRate: number,
     bounceFloorY: number
   ): void {
-    for (let i = 0; i < count; i++) {
+    const scaledCount = Math.max(3, Math.round(count * this.particleScale));
+    for (let i = 0; i < scaledCount; i++) {
       const p = this.allocParticle();
       p.pos.set(
         origin.x + (Math.random() - 0.5) * 0.4,
@@ -572,7 +595,7 @@ export class VFXManager {
   }
 
   public updateKokoStealthRim(
-    materials: THREE.MeshToonMaterial[],
+    materials: Array<THREE.MeshStandardMaterial | THREE.MeshToonMaterial>,
     isBab2: boolean,
     isInSafeCover: boolean,
     isOnDesk: boolean,

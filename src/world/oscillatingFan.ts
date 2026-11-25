@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { WORLD_SCALE as S } from '../types';
-import { Palette, createToonMaterial } from '../style/palette';
+import { Palette } from '../style/palette';
 import { KokoController } from '../physics/kokoPhysics';
 import { ProceduralAudioEngine } from '../audio/ProceduralAudioEngine';
 import { VFXManager } from '../vfx/VFXManager';
+import { ProceduralTextures } from '../graphics/ProceduralTextures';
 
 export class OscillatingFan {
   public readonly root = new THREE.Group();
@@ -30,15 +31,20 @@ export class OscillatingFan {
     walkables: THREE.Object3D[],
     obstacles: THREE.Object3D[],
     private readonly sound: ProceduralAudioEngine,
-    vfx: VFXManager
+    vfx: VFXManager,
+    textures: ProceduralTextures
   ) {
     this.root.name = 'Oscillating_Fan';
     this.root.position.copy(position);
 
-    const darkMat = createToonMaterial(Palette.SlateDark);
-    const steelMat = createToonMaterial(Palette.Steel);
-    const bladeMat = createToonMaterial(0x59e0ba);
-    const accentMat = createToonMaterial(0x3a6cff, { emissive: 0x1a38aa, emissiveIntensity: 0.6 });
+    const darkMat = textures.createMetalMaterial({ variant: 'powder', colorHex: Palette.SlateDark });
+    const steelMat = textures.createMetalMaterial({ variant: 'stainless', colorHex: 0xc2cbd4 });
+    const bladeMat = textures.createPlasticMaterial({ colorHex: 0x59e0ba, roughness: 0.4 });
+    const accentMat = textures.createMatteMaterial(0x3a6cff, {
+      emissive: 0x1a38aa,
+      emissiveIntensity: 0.65,
+      roughness: 0.35,
+    });
 
     // Base & stand pole
     const base = new THREE.Mesh(new THREE.CylinderGeometry(0.28 * S, 0.32 * S, 0.06 * S, 16), darkMat);
@@ -63,20 +69,24 @@ export class OscillatingFan {
     const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.11 * S, 0.13 * S, 0.24 * S, 12), darkMat);
     motor.rotation.x = Math.PI * 0.5;
     motor.position.z = -0.06 * S;
+    motor.castShadow = true;
     this.headPivot.add(motor);
 
-    // Front Grille Rings
+    // Front Grille Rings (thin rings disable castShadow to keep shadow pass lightweight)
     const cageRing = new THREE.Mesh(new THREE.TorusGeometry(0.28 * S, 0.015 * S, 8, 22), steelMat);
     cageRing.position.z = 0.14 * S;
+    cageRing.castShadow = false;
     this.headPivot.add(cageRing);
 
     const innerRing = new THREE.Mesh(new THREE.TorusGeometry(0.14 * S, 0.01 * S, 6, 18), accentMat);
     innerRing.position.z = 0.17 * S;
+    innerRing.castShadow = false;
     this.headPivot.add(innerRing);
 
     const hubCap = new THREE.Mesh(new THREE.CylinderGeometry(0.06 * S, 0.06 * S, 0.03 * S, 12), accentMat);
     hubCap.rotation.x = Math.PI * 0.5;
     hubCap.position.z = 0.18 * S;
+    hubCap.castShadow = false;
     this.headPivot.add(hubCap);
 
     // Spinning Blades

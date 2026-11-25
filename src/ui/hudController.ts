@@ -4,12 +4,14 @@ import { KokoController } from '../physics/kokoPhysics';
 import { SurfaceAlignedCamera } from '../camera/surfaceCamera';
 import { ProceduralAudioEngine } from '../audio/ProceduralAudioEngine';
 import { MAX_UPGRADE_LEVEL, ProgressionManager, UPGRADE_DEFS } from '../game/progression';
+import { QualityManager, QualityMode } from '../graphics/QualityManager';
 
 export interface StageBridge {
   getActiveStage: () => StageController;
   getSelectedStageId: () => StageId;
   selectAndLoadStage: (id: StageId, startImmediately: boolean) => void;
   progression: ProgressionManager;
+  quality: QualityManager;
   isFlashbangGlare: () => boolean;
 }
 
@@ -109,6 +111,10 @@ export class HUDController {
   private readonly labGrid = document.getElementById('lab-grid')!;
   private readonly caughtOverlay = document.getElementById('caught-overlay')!;
   private readonly caughtReason = document.getElementById('caught-reason')!;
+  private readonly pauseQualityStatus = document.getElementById('pause-quality-status')!;
+  private readonly qualityButtons = Array.from(
+    document.querySelectorAll<HTMLButtonElement>('.quality-btn[data-qmode]')
+  );
 
   private readonly projVec = new THREE.Vector3();
 
@@ -285,6 +291,17 @@ export class HUDController {
       this.setTouchMode(!this.touchMode);
     });
 
+    for (const btn of this.qualityButtons) {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.qmode as QualityMode | undefined;
+        if (!mode) return;
+        bridge.quality.setMode(mode);
+        this.refreshQualityUI();
+        this.showToast(`⚙ Kualitas Grafis: ${bridge.quality.getStatusSummary()}`);
+      });
+    }
+    this.refreshQualityUI();
+
     this.btnMute.addEventListener('click', () => {
       this.sound.unlock();
       this.sound.setMuted(!this.sound.muted);
@@ -434,6 +451,15 @@ export class HUDController {
     }
   }
 
+  public refreshQualityUI(): void {
+    if (!this.bridge) return;
+    this.pauseQualityStatus.textContent = this.bridge.quality.getStatusSummary();
+    const curMode = this.bridge.quality.mode;
+    for (const btn of this.qualityButtons) {
+      btn.classList.toggle('active', btn.dataset.qmode === curMode);
+    }
+  }
+
   public showStory(text: string, duration: number): void {
     this.storyText.textContent = text;
     this.storyUntil = performance.now() * 0.001 + duration;
@@ -558,6 +584,7 @@ export class HUDController {
     this.surfaceStatus.textContent = koko.getSurfaceLabel() + snap.extraStatusTag;
     this.staminaFill.style.width = `${Math.round((koko.stamina / koko.maxStamina) * 100)}%`;
     this.dnaHudBadge.textContent = `${totalDna} DNA`;
+    if (isPaused) this.refreshQualityUI();
 
     // Monitor Flashbang Glare overlay
     const glareOn = Boolean(this.bridge?.isFlashbangGlare()) && isStarted && !isPaused;

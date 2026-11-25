@@ -1001,3 +1001,72 @@ body,
   color: rgba(250, 240, 214, 0.45);
   cursor: not-allowed;
 }
+
+/* Pause Quality & Performance Controls */
+.pause-quality-panel {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(250, 240, 214, 0.2);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  text-align: left;
+}
+
+.pause-quality-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.pause-quality-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--amber);
+}
+
+.pause-quality-status {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--mint);
+}
+
+.pause-quality-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+@media (max-width: 520px) {
+  .pause-quality-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.quality-btn {
+  border: 1px solid rgba(250, 240, 214, 0.28);
+  border-radius: 8px;
+  padding: 7px 6px;
+  background: rgba(14, 26, 36, 0.65);
+  color: var(--cream);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quality-btn:hover {
+  border-color: var(--amber);
+}
+
+.quality-btn.active {
+  background: var(--amber);
+  color: var(--ink-solid);
+  border-color: var(--amber);
+}

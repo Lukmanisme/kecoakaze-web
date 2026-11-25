@@ -5,12 +5,12 @@ import {
   RoomBounds,
   WORLD_SCALE as S,
 } from '../types';
-import { createToonMaterial } from '../style/palette';
 import { PropBuildContext, addBox, addCyl, addSph } from './kitchenProps';
 import { OscillatingFan } from './oscillatingFan';
 import { RgbLightingSystem } from './rgbLighting';
 import { ProceduralAudioEngine } from '../audio/ProceduralAudioEngine';
 import { VFXManager } from '../vfx/VFXManager';
+import { ProceduralTextures } from '../graphics/ProceduralTextures';
 
 const ROOM_W = 8.0;
 const ROOM_D = 6.5;
@@ -19,6 +19,7 @@ const WALL_T = 0.15;
 
 export interface GamerRoomData {
   root: THREE.Group;
+  shadowLight: THREE.DirectionalLight;
   walkables: THREE.Object3D[];
   obstacles: THREE.Object3D[];
   bounds: RoomBounds;
@@ -37,7 +38,8 @@ export interface GamerRoomData {
 export function buildGamerRoomLevel(
   scene: THREE.Scene,
   sound: ProceduralAudioEngine,
-  vfx: VFXManager
+  vfx: VFXManager,
+  textures: ProceduralTextures
 ): GamerRoomData {
   const root = new THREE.Group();
   root.name = 'Environment_GamerRoom';
@@ -46,38 +48,70 @@ export function buildGamerRoomLevel(
   scene.background = new THREE.Color(0x131628);
   scene.fog = new THREE.Fog(0x131628, 48, 125);
 
-  const dirLight = new THREE.DirectionalLight(0xcfd8ff, 0.85);
-  dirLight.position.set(-10, 22, -16);
+  // Bab 02 Low-Key Primary Shadow Light with tight interior frustum
+  const dirLight = new THREE.DirectionalLight(0xc6d4ff, 0.72);
+  dirLight.position.set(-1.5 * S, 2.7 * S, -1.5 * S);
+  dirLight.target.position.set(0.3 * S, 0, 0.5 * S);
+  root.add(dirLight.target);
   dirLight.castShadow = true;
   dirLight.shadow.mapSize.set(1024, 1024);
-  dirLight.shadow.camera.near = 2;
-  dirLight.shadow.camera.far = 70;
-  const d = 32;
-  dirLight.shadow.camera.left = -d;
-  dirLight.shadow.camera.right = d;
-  dirLight.shadow.camera.top = d;
-  dirLight.shadow.camera.bottom = -d;
+  dirLight.shadow.camera.near = 1.5;
+  dirLight.shadow.camera.far = 40;
+  dirLight.shadow.camera.left = -28;
+  dirLight.shadow.camera.right = 28;
+  dirLight.shadow.camera.top = 24;
+  dirLight.shadow.camera.bottom = -24;
+  dirLight.shadow.bias = -0.0005;
+  dirLight.shadow.normalBias = 0.02;
   root.add(dirLight);
 
   const ctx: PropBuildContext = { walkables: [], obstacles: [] };
   const ledMeshes: THREE.Mesh[] = [];
 
-  // Materials
-  const floorMat = createToonMaterial(0x282b3a);
-  const wallDarkMat = createToonMaterial(0x1e2233);
-  const wallSideMat = createToonMaterial(0x23283d);
-  const ceilingMat = createToonMaterial(0x171a27);
-  const deskMat = createToonMaterial(0x1a1d26);
-  const woodMat = createToonMaterial(0x52392b);
-  const cardboardMat = createToonMaterial(0xa88255);
-  const bedFrameMat = createToonMaterial(0x2e2a38);
-  const mattressMat = createToonMaterial(0xd8d6e6);
-  const blanketMat = createToonMaterial(0x2c427a);
-  const metalMat = createToonMaterial(0x6e7688);
-  const glassMat = createToonMaterial(0x66cfff, { transparent: true, opacity: 0.32 });
-  const redMat = createToonMaterial(0xc93b4b);
-  const mintMat = createToonMaterial(0x4de3b2);
-  const yellowMat = createToonMaterial(0xf2c94c);
+  // PBR Materials (low-key gamer room + satin plastics + brushed metals + walnut wood)
+  const floorMat = textures.createCeramicMaterial({
+    variant: 'floor40',
+    colorA: '#262A39',
+    colorB: '#212432',
+    groutColor: '#141722',
+    repeatX: (ROOM_W + 0.4) / 0.8,
+    repeatY: (ROOM_D + 0.4) / 0.8,
+    roughness: 0.34,
+  });
+  const wallDarkMat = textures.createMatteMaterial(0x1e2233, { roughness: 0.88 });
+  const wallSideMat = textures.createMatteMaterial(0x23283d, { roughness: 0.88 });
+  const ceilingMat = textures.createMatteMaterial(0x171a27, { roughness: 0.92 });
+  const deskMat = textures.createPlasticMaterial({ colorHex: 0x1a1d26, roughness: 0.45 });
+  const woodMat = textures.createWoodMaterial({
+    key: 'gamer_walnut',
+    baseHex: '#5A3E2E',
+    altHex: '#4E3527',
+    grainHex: '#2E1D14',
+    planks: 3,
+    roughness: 0.74,
+  });
+  const cardboardMat = textures.createMatteMaterial(0xa88255, { roughness: 0.9 });
+  const bedFrameMat = textures.createWoodMaterial({
+    key: 'bed_dark',
+    baseHex: '#2E2A38',
+    altHex: '#272330',
+    grainHex: '#18151E',
+    planks: 3,
+    roughness: 0.76,
+  });
+  const mattressMat = textures.createMatteMaterial(0xd8d6e6, { roughness: 0.92 });
+  const blanketMat = textures.createMatteMaterial(0x2c427a, { roughness: 0.9 });
+  const metalMat = textures.createMetalMaterial({ variant: 'stainless', colorHex: 0x8690a3 });
+  const glassMat = textures.createMatteMaterial(0x66cfff, {
+    transparent: true,
+    opacity: 0.34,
+    roughness: 0.14,
+    metalness: 0.12,
+    envMapIntensity: 1.3,
+  });
+  const redMat = textures.createPlasticMaterial({ colorHex: 0xc93b4b, roughness: 0.42 });
+  const mintMat = textures.createPlasticMaterial({ colorHex: 0x4de3b2, roughness: 0.42 });
+  const yellowMat = textures.createPlasticMaterial({ colorHex: 0xf2c94c, roughness: 0.44 });
 
   const makeLed = (
     name: string,
@@ -85,10 +119,10 @@ export function buildGamerRoomLevel(
     sizeM: [number, number, number],
     parent: THREE.Object3D = root
   ): THREE.Mesh => {
-    const mat = new THREE.MeshToonMaterial({
-      color: 0x5b6cff,
+    const mat = textures.createMatteMaterial(0x5b6cff, {
       emissive: 0x5b6cff,
       emissiveIntensity: 1.4,
+      roughness: 0.3,
     });
     const m = addBox(parent, name, centerM, sizeM, mat, ctx, {
       collider: false,
@@ -154,12 +188,16 @@ export function buildGamerRoomLevel(
   makeLed('Desk_LED_Back', [deskCenterX, deskTopY + 0.01, deskZ + 0.44], [deskW - 0.05, 0.025, 0.025]);
   makeLed('Desk_LED_Front', [deskCenterX, deskTopY - 0.03, deskZ - 0.44], [deskW - 0.05, 0.02, 0.02]);
 
-  // Kabel-kabel & power strip di kolong meja
-  addBox(root, 'Power_Strip', [1.4, 0.03, 2.95], [0.36, 0.04, 0.09], metalMat, ctx, { collider: false });
+  // Kabel-kabel & power strip di kolong meja (castShadow = false)
+  addBox(root, 'Power_Strip', [1.4, 0.03, 2.95], [0.36, 0.04, 0.09], metalMat, ctx, {
+    collider: false,
+    castShadow: false,
+  });
   for (let c = 0; c < 4; c++) {
     addCyl(root, `UnderDesk_Cable_${c}`, [0.9 + c * 0.25, 0.42, 2.95], 0.02, 0.68, deskMat, ctx, {
       collider: false,
       eulerDeg: [0, 0, (c - 1.5) * 9],
+      castShadow: false,
     });
   }
 
@@ -254,7 +292,8 @@ export function buildGamerRoomLevel(
     ctx.walkables,
     ctx.obstacles,
     sound,
-    vfx
+    vfx,
+    textures
   );
   root.add(fan.root);
 
@@ -276,6 +315,7 @@ export function buildGamerRoomLevel(
   // 8. 3 Target Sabotase Bab 02
   const interactiveProps = createBab2Targets(
     root,
+    textures,
     new THREE.Vector3(canX * S, (deskTopY + 0.16) * S, canZ * S),
     energyCan,
     new THREE.Vector3(pcX * S, (deskTopY + 0.18) * S, (pcZ + 0.32) * S),
@@ -290,6 +330,7 @@ export function buildGamerRoomLevel(
 
   return {
     root,
+    shadowLight: dirLight,
     walkables: ctx.walkables,
     obstacles: ctx.obstacles,
     bounds: {
@@ -386,6 +427,7 @@ function drawGameScreen(ctx: CanvasRenderingContext2D, connectionLost: boolean):
 
 function createBab2Targets(
   root: THREE.Group,
+  textures: ProceduralTextures,
   pos1: THREE.Vector3,
   canMesh: THREE.Object3D,
   pos2: THREE.Vector3,
@@ -409,31 +451,32 @@ function createBab2Targets(
     return m;
   };
 
-  // Ruined 1: Green/toxic foam ring on energy drink rim
+  // Ruined props disable castShadow
   const ruined1 = new THREE.Mesh(
     new THREE.CylinderGeometry(0.05 * S, 0.05 * S, 0.02 * S, 12),
-    createToonMaterial(0x52ff9b)
+    textures.createPlasticMaterial({ colorHex: 0x52ff9b, roughness: 0.3 })
   );
   ruined1.position.copy(pos1).add(new THREE.Vector3(0, 0.05, 0));
   ruined1.visible = false;
+  ruined1.castShadow = false;
   root.add(ruined1);
 
-  // Ruined 2: Unplugged dangling spark cap at PC LAN port
   const ruined2 = new THREE.Mesh(
     new THREE.BoxGeometry(0.08 * S, 0.08 * S, 0.1 * S),
-    createToonMaterial(0xff4433)
+    textures.createPlasticMaterial({ colorHex: 0xff4433, roughness: 0.45 })
   );
   ruined2.position.copy(pos2).add(new THREE.Vector3(0, -0.1 * S, 0.05 * S));
   ruined2.visible = false;
+  ruined2.castShadow = false;
   root.add(ruined2);
 
-  // Ruined 3: Cracked terror badge on top of monitor
   const ruined3 = new THREE.Mesh(
     new THREE.SphereGeometry(0.09 * S, 10, 8),
-    createToonMaterial(0xffbf52)
+    textures.createPlasticMaterial({ colorHex: 0xffbf52, roughness: 0.4 })
   );
   ruined3.position.copy(pos3);
   ruined3.visible = false;
+  ruined3.castShadow = false;
   root.add(ruined3);
 
   return [
