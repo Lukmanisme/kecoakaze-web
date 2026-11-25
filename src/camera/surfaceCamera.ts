@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BossState, ROOM_D, ROOM_H, ROOM_W, WORLD_SCALE as S } from '../types';
+import { ROOM_D, ROOM_H, ROOM_W, RoomBounds, WORLD_SCALE as S } from '../types';
 
 export class SurfaceAlignedCamera {
   private smoothedSurfaceUp = new THREE.Vector3(0, 1, 0);
@@ -18,12 +18,29 @@ export class SurfaceAlignedCamera {
   private readonly raycaster = new THREE.Raycaster();
   private readonly sphereRadius = 0.24;
 
+  private obstacles: THREE.Object3D[];
+  private bounds: RoomBounds = {
+    halfW: ROOM_W * 0.5 * S,
+    halfD: ROOM_D * 0.5 * S,
+    height: ROOM_H * S,
+  };
+
   constructor(
     public readonly camera: THREE.PerspectiveCamera,
-    private readonly obstacles: THREE.Object3D[]
+    obstacles: THREE.Object3D[]
   ) {
+    this.obstacles = obstacles;
     this.camera.fov = this.defaultFov;
     this.camera.updateProjectionMatrix();
+  }
+
+  public configureLevel(obstacles: THREE.Object3D[], bounds?: RoomBounds): void {
+    this.obstacles = obstacles;
+    this.bounds = bounds ?? {
+      halfW: ROOM_W * 0.5 * S,
+      halfD: ROOM_D * 0.5 * S,
+      height: ROOM_H * S,
+    };
   }
 
   public reset(targetPos: THREE.Vector3): void {
@@ -83,14 +100,9 @@ export class SurfaceAlignedCamera {
     targetPos: THREE.Vector3,
     targetQuat: THREE.Quaternion,
     surfaceNormal: THREE.Vector3,
-    bossState: BossState
+    combatWideFov = false
   ): void {
-    const targetFov =
-      bossState === 'AngerCombat' ||
-      bossState === 'WindupAttack' ||
-      bossState === 'Mengamuk'
-        ? 72
-        : this.defaultFov;
+    const targetFov = combatWideFov ? 72 : this.defaultFov;
     if (Math.abs(this.camera.fov - targetFov) > 0.05) {
       this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, Math.min(1, dt * 4));
       this.camera.updateProjectionMatrix();
@@ -131,7 +143,6 @@ export class SurfaceAlignedCamera {
     const maxFollowDist = 2.45;
     const pivot = targetPos.clone().addScaledVector(this.smoothedSurfaceUp, 0.42);
 
-    // Multi-probe sphere-cast anti-clipping (center + 4 perimeter offsets)
     let safeDist = maxFollowDist;
     const probeOffsets = [
       new THREE.Vector3(0, 0, 0),
@@ -153,7 +164,6 @@ export class SurfaceAlignedCamera {
       }
     }
 
-    // Pull in fast when blocked, relax out smoothly when clear
     const distRate = safeDist < this.currentFollowDist ? 24 : 8;
     this.currentFollowDist = THREE.MathUtils.lerp(
       this.currentFollowDist,
@@ -163,11 +173,10 @@ export class SurfaceAlignedCamera {
 
     const desiredPos = pivot.clone().addScaledVector(backDir, this.currentFollowDist);
 
-    // Keep camera strictly inside room walls/floor/ceiling
     const pad = 0.2;
-    desiredPos.x = THREE.MathUtils.clamp(desiredPos.x, -ROOM_W * 0.5 * S + pad, ROOM_W * 0.5 * S - pad);
-    desiredPos.z = THREE.MathUtils.clamp(desiredPos.z, -ROOM_D * 0.5 * S + pad, ROOM_D * 0.5 * S - pad);
-    desiredPos.y = THREE.MathUtils.clamp(desiredPos.y, 0.16, ROOM_H * S - pad);
+    desiredPos.x = THREE.MathUtils.clamp(desiredPos.x, -this.bounds.halfW + pad, this.bounds.halfW - pad);
+    desiredPos.z = THREE.MathUtils.clamp(desiredPos.z, -this.bounds.halfD + pad, this.bounds.halfD - pad);
+    desiredPos.y = THREE.MathUtils.clamp(desiredPos.y, 0.16, this.bounds.height - pad);
 
     if (this.shakeTimer > 0) {
       this.shakeTimer -= dt;

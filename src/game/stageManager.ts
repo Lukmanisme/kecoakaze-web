@@ -1,5 +1,13 @@
 import * as THREE from 'three';
-import { HidingSpot, InteractiveProp, WORLD_SCALE as S } from '../types';
+import {
+  HidingSpot,
+  HudSnapshot,
+  InputState,
+  InteractiveProp,
+  StageController,
+  StageId,
+  WORLD_SCALE as S,
+} from '../types';
 import { KitchenLevelData } from '../world/kitchenLevel';
 import { KokoController } from '../physics/kokoPhysics';
 import { IbuBossController } from '../ai/ibuBoss';
@@ -11,8 +19,8 @@ import { ParticleFXManager } from '../effects/particleFx';
 export interface StageCallbacks {
   onStoryMessage: (text: string, duration: number) => void;
   onToast: (text: string) => void;
-  onStarUnlocked: (starIdx: number) => void;
   onStageClear: (
+    stageId: StageId,
     stars: number,
     finalMomentum: number,
     dnaReward: number,
@@ -21,8 +29,9 @@ export interface StageCallbacks {
   onKokoCaught: (reason: string) => void;
 }
 
-export class KitchenStageManager {
-  public gauge = 0; // 0..100
+export class KitchenStageManager implements StageController {
+  public readonly stageId: StageId = 'bab1';
+  public gauge = 0;
   public gaugeActive = false;
   public stars: [boolean, boolean, boolean] = [false, false, false];
   public isFinaleActive = false;
@@ -42,6 +51,7 @@ export class KitchenStageManager {
   private actionTickSoundCooldown = 0;
 
   constructor(
+    private readonly scene: THREE.Scene,
     private readonly level: KitchenLevelData,
     private readonly koko: KokoController,
     private readonly ibu: IbuBossController,
@@ -52,6 +62,21 @@ export class KitchenStageManager {
     private readonly callbacks: StageCallbacks
   ) {
     this.applyUpgrades();
+  }
+
+  public setActive(active: boolean): void {
+    this.level.root.visible = active;
+    this.ibu.rig.root.visible = active;
+    if (active) {
+      this.scene.background = new THREE.Color(0xa3e2d3);
+      this.scene.fog = new THREE.Fog(0xa3e2d3, 48, 125);
+      this.koko.configureLevel({
+        walkables: this.level.walkables,
+        soapyZone: this.level.soapyZone,
+        updraftZone: this.level.updraftZone,
+      });
+      this.cam.configureLevel(this.level.obstacles);
+    }
   }
 
   public applyUpgrades(): void {
@@ -119,7 +144,6 @@ export class KitchenStageManager {
       this.progression.addDna(50);
       this.runBonusDna += 50;
       this.sound.playStarUnlock();
-      this.callbacks.onStarUnlocked(idx);
       this.callbacks.onToast(`★ BINTANG ${idx + 1} TERBUKA! (+50 DNA)`);
     }
 
@@ -159,12 +183,30 @@ export class KitchenStageManager {
     this.callbacks.onKokoCaught(reason);
   }
 
-  public update(dt: number, time: number, actionHeld: boolean): void {
+  public update(
+    dt: number,
+    time: number,
+    input: InputState,
+    camFwd: THREE.Vector3,
+    camUp: THREE.Vector3
+  ): void {
     this.particles.update(dt);
+    this.animateUpdraftParticles(dt);
 
-    if (this.isPaused || !this.isStarted || this.isStageCleared) return;
+    if (this.isPaused || !this.isStarted || this.isStageCleared) {
+      this.cam.update(
+        dt,
+        this.koko.position,
+        this.koko.quaternion,
+        this.koko.surfaceNormal,
+        false
+      );
+      return;
+    }
 
-    // 1. Update Hiding Spots
+    this.koko.update(dt, time, input, camFwd, camUp);
+
+    // 1. Hiding Spots
     this.activeHidingSpot = null;
     for (const spot of this.level.hidingSpots) {
       const dx = Math.abs(this.koko.position.x - spot.position.x);
@@ -176,22 +218,19 @@ export class KitchenStageManager {
         dz <= spot.halfExtents.z;
 
       spot.isKokoInside = inside;
-      const mat = spot.indicatorMesh.material as THREE.MeshBasicMaterial;
-      mat.opacity = inside ? 0.52 : 0.18;
+      (spot.indicatorMesh.material as THREE.MeshBasicMaterial).opacity = inside ? 0.52 : 0.18;
       if (inside) this.activeHidingSpot = spot;
     }
 
-    // 2. Update Interactive Props & Beacon Pulse
+    // 2. Interactive Props
     this.nearbyProp = null;
     const objectiveProp = this.getCurrentObjectiveProp();
     for (const p of this.level.interactiveProps) {
       const isCurrentTarget = objectiveProp === p && !p.isRuined;
       p.beaconMesh.visible = isCurrentTarget;
       if (isCurrentTarget) {
-        const pulse = 1 + Math.sin(time * 5) * 0.16;
-        p.beaconMesh.scale.setScalar(pulse);
+        p.beaconMesh.scale.setScalar(1 + Math.sin(time * 5) * 0.16);
       }
-
       if (!p.isRuined && this.koko.position.distanceTo(p.position) <= p.interactionRadius) {
         if (!this.nearbyProp || p === objectiveProp) {
           this.nearbyProp = p;
@@ -200,7 +239,7 @@ export class KitchenStageManager {
     }
 
     if (this.nearbyProp && !this.nearbyProp.isRuined) {
-      if (actionHeld) {
+      if (input.actionHeld) {
         this.nearbyProp.currentProgress += dt * this.sabotageSpeedMult;
         this.lastActionTime = time;
         this.actionTickSoundCooldown -= dt;
@@ -216,14 +255,36 @@ export class KitchenStageManager {
       }
     }
 
-    // 3. Momentum Gauge Decay (1%/sec after 8s idle)
+    // 3. Momentum Gauge Decay
     if (this.gaugeActive && !this.isFinaleActive) {
       if (time - this.lastActionTime > 8.0 && this.gauge > 0) {
         this.gauge = Math.max(0, this.gauge - 1.0 * dt);
       }
     }
 
-    // 4. Finale Rampage Timer
+    // 4. Ibu AI & Camera
+    this.ibu.update(
+      dt,
+      time,
+      this.koko.position,
+      this.koko.state === 'Flying' || this.koko.state === 'Gliding',
+      this.koko.effectiveInvincible,
+      this.activeHidingSpot
+    );
+
+    const combatFov =
+      this.ibu.bossState === 'AngerCombat' ||
+      this.ibu.bossState === 'WindupAttack' ||
+      this.ibu.bossState === 'Mengamuk';
+    this.cam.update(
+      dt,
+      this.koko.position,
+      this.koko.quaternion,
+      this.koko.surfaceNormal,
+      combatFov
+    );
+
+    // 5. Finale Rampage Timer
     if (this.isFinaleActive) {
       this.finaleTimer += dt;
       if (this.finaleTimer >= this.finaleDuration) {
@@ -238,8 +299,9 @@ export class KitchenStageManager {
         this.sound.playStageClear();
 
         const clearBaseDna = 500;
-        this.progression.recordStageClear(this.totalStars, this.gauge, clearBaseDna);
+        this.progression.recordStageClear('bab1', this.totalStars, this.gauge, clearBaseDna);
         this.callbacks.onStageClear(
+          'bab1',
           this.totalStars,
           this.gauge,
           clearBaseDna + this.runBonusDna,
@@ -255,12 +317,11 @@ export class KitchenStageManager {
     prop.ruinedVisual.visible = true;
     for (const obj of prop.pristineObjects) obj.visible = false;
 
-    // Game Juice: particle burst + micro screen shake
-    this.particles.spawnSabotageBurst(prop.type, prop.position);
+    const kind = prop.type === 0 ? 'veg' : prop.type === 1 ? 'soup' : 'table';
+    this.particles.spawnBurst(kind, prop.position);
     this.cam.triggerShake(0.18, 0.25);
     this.sound.playPrankComplete();
 
-    // High-Risk High-Reward Momentum Bonus when Ibu is nearby
     const distToIbu = this.koko.position.distanceTo(this.ibu.rig.root.position);
     if (distToIbu <= 2.9 * S) {
       this.gauge = Math.min(100, this.gauge + 18);
@@ -275,5 +336,112 @@ export class KitchenStageManager {
       'KOKO / "Misi kecil selesai. Jangan ketahuan dulu!"\nMenjauh; bintang terbuka saat Ibu menemukan keisengan.',
       6
     );
+  }
+
+  private animateUpdraftParticles(dt: number): void {
+    const attr = this.level.updraftParticles.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const origin = this.level.updraftParticles.geometry.userData.origin as THREE.Vector3;
+    for (let i = 0; i < attr.count; i++) {
+      let y = attr.getY(i) + dt * 5.2;
+      if (y > origin.y + 8.0) y = origin.y;
+      attr.setY(i, y);
+    }
+    attr.needsUpdate = true;
+  }
+
+  public getHudSnapshot(): HudSnapshot {
+    const target = this.getCurrentObjectiveProp();
+    const discoveredCount = [0, 1, 2].filter((i) => this.stars[i]).length;
+    const titles = ['01 / CURI CEMILAN', '02 / SABOTASE SUP', '03 / PESTA DI MEJA'];
+    const hints = [
+      'Dekati bahan sayur di Meja Dapur. Tahan AKSI (E/F) untuk makan.',
+      'Tunggu Ibu menjauh dari kompor. Dekati wajan/panci, tahan AKSI (E/F).',
+      'Manfaatkan celah rutinitas. Dekati hidangan di Meja Makan, tahan AKSI (E/F).',
+    ];
+
+    let objectiveTitle = 'DAPUR BERHASIL DILEWATI';
+    let objectiveHint = 'Koko selamat. Ibu butuh waktu menenangkan diri!';
+    if (!this.isStageCleared && !this.isFinaleActive && target) {
+      objectiveTitle = `${titles[target.type]}   ${discoveredCount}/3`;
+      objectiveHint = target.isRuined
+        ? 'Keisengan siap! Menjauh & tunggu Ibu menemukannya.'
+        : hints[target.type];
+    } else if (this.isFinaleActive) {
+      objectiveTitle = 'FINALE / DAPUR HURU-HARA';
+    }
+
+    let threatStatus = 'IBU SIBUK / JAGA JARAK';
+    let threatColor = '#59e0ba';
+    switch (this.ibu.bossState) {
+      case 'PanicDefeated':
+        threatStatus = 'IBU MENYERAH / KOKO SELAMAT';
+        break;
+      case 'Mengamuk':
+        threatStatus = 'FINALE / DAPUR HURU-HARA';
+        threatColor = '#ffbf52';
+        break;
+      case 'MencariKoko':
+      case 'MemeriksaSembunyi':
+        threatStatus = 'IBU MENCARI / TETAP SEMBUNYI';
+        threatColor = '#ffbf52';
+        break;
+      case 'WindupAttack':
+        threatStatus = '⚠ ANCAMAN! SIAP ELAK [Q]!';
+        threatColor = '#ff4433';
+        break;
+      case 'AngerCombat':
+      case 'ShockedFreeze':
+      case 'CariSapu':
+        threatStatus = 'BAHAYA / PUTUS GARIS PANDANG!';
+        threatColor = '#ff6e5c';
+        break;
+      case 'SuspiciousAlert':
+      case 'Marah':
+        threatStatus = 'IBU WASPADA / CARI CELAH';
+        threatColor = '#ffbf52';
+        break;
+    }
+
+    const badge: '!' | '?' | null =
+      this.ibu.bossState === 'AngerCombat' ||
+      this.ibu.bossState === 'WindupAttack' ||
+      this.ibu.bossState === 'ShockedFreeze' ||
+      this.ibu.bossState === 'Mengamuk'
+        ? '!'
+        : this.ibu.bossState === 'SuspiciousAlert' ||
+            this.ibu.bossState === 'MencariKoko' ||
+            this.ibu.bossState === 'MemeriksaSembunyi'
+          ? '?'
+          : null;
+
+    let extraStatusTag = '';
+    if (this.koko.isOnSoapyFloor) extraStatusTag = ' · LICIN!';
+    if (this.koko.isInUpdraft) extraStatusTag = ' · UPDRAFT!';
+
+    return {
+      stageId: 'bab1',
+      chapterLabel: 'KECOAKAZE / BAB 01',
+      objectiveTitle,
+      objectiveHint,
+      targetPosition: target && !target.isRuined && !this.isFinaleActive && !this.isStageCleared ? target.position : null,
+      targetMarkerText: target ? `0${target.type + 1}\n${target.targetName}` : '',
+      activeHidingSpot: this.activeHidingSpot,
+      gauge: this.gauge,
+      stars: this.stars,
+      threatStatus,
+      threatColor,
+      detection: this.ibu.detection,
+      isWindingUp: this.ibu.isWindingUp,
+      windupProgress: this.ibu.windupProgress,
+      windupWarningText: '⚠ BAHAYA SAPU/SANDAL! TEKAN [Q] ELAK',
+      bossWorldPos: this.ibu.rig.root.position,
+      bossHeadHeight: 2.38 * this.ibu.rig.worldScale,
+      bossDialogue: this.ibu.activeDialogue,
+      bossBadge: badge,
+      nearbyProp: this.nearbyProp,
+      extraStatusTag,
+      isFinaleActive: this.isFinaleActive,
+      isStageCleared: this.isStageCleared,
+    };
   }
 }

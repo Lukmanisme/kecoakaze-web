@@ -1,5 +1,12 @@
 import * as THREE from 'three';
-import { KeisenganType } from '../types';
+
+export type ParticleBurstKind =
+  | 'veg'
+  | 'soup'
+  | 'table'
+  | 'drink_splash'
+  | 'lan_sparks'
+  | 'screen_terror';
 
 interface BurstParticle {
   mesh: THREE.Mesh;
@@ -18,21 +25,27 @@ export class ParticleFXManager {
 
   constructor(private readonly scene: THREE.Scene) {}
 
-  public spawnSabotageBurst(type: KeisenganType, origin: THREE.Vector3): void {
-    if (type === 0) {
-      // Potongan sayur (wortel oranye, tomat merah, daun hijau)
-      const colors = [0xe89b3c, 0xb9463f, 0x5f9e58, 0x8be08f];
-      this.emitBurst(origin, colors, 22, 5.5, 16, false);
-    } else if (type === 1) {
-      // Percikan sup & kepulan uap panas di panci kompor
-      const liquidColors = [0x6ea63a, 0xe89b3c, 0xede6d3];
-      this.emitBurst(origin, liquidColors, 16, 6.2, 15, false);
-      const steamColors = [0xffffff, 0xdff5f0];
-      this.emitBurst(origin.clone().add(new THREE.Vector3(0, 0.25, 0)), steamColors, 14, 2.8, -3.2, true);
-    } else {
-      // Remah makanan & bumbu di meja makan
-      const crumbColors = [0xd1a867, 0x7a4128, 0xb9463f, 0xf1d45c];
-      this.emitBurst(origin, crumbColors, 26, 6.8, 17, false);
+  public spawnBurst(kind: ParticleBurstKind, origin: THREE.Vector3): void {
+    switch (kind) {
+      case 'veg':
+        this.emitBurst(origin, [0xe89b3c, 0xb9463f, 0x5f9e58, 0x8be08f], 22, 5.5, 16, false);
+        break;
+      case 'soup':
+        this.emitBurst(origin, [0x6ea63a, 0xe89b3c, 0xede6d3], 16, 6.2, 15, false);
+        this.emitBurst(origin.clone().add(new THREE.Vector3(0, 0.25, 0)), [0xffffff, 0xdff5f0], 14, 2.8, -3.2, true);
+        break;
+      case 'table':
+        this.emitBurst(origin, [0xd1a867, 0x7a4128, 0xb9463f, 0xf1d45c], 26, 6.8, 17, false);
+        break;
+      case 'drink_splash':
+        this.emitBurst(origin, [0x45f59c, 0x00e5ff, 0xf4f1e8], 22, 5.8, 15, false);
+        break;
+      case 'lan_sparks':
+        this.emitBurst(origin, [0x42d4ff, 0xffd54f, 0xffffff], 26, 7.6, 12, false);
+        break;
+      case 'screen_terror':
+        this.emitBurst(origin, [0xffbf52, 0x59e0ba, 0xff5f8f, 0xffffff], 28, 6.5, 10, false);
+        break;
     }
   }
 

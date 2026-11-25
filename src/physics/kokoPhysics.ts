@@ -7,10 +7,18 @@ import {
   ROOM_D,
   ROOM_H,
   ROOM_W,
+  RoomBounds,
   WORLD_SCALE as S,
 } from '../types';
 import { KokoRig } from '../entities/kokoModel';
 import { SoundEngine } from '../audio/soundEngine';
+
+export interface LevelPhysicsConfig {
+  walkables: THREE.Object3D[];
+  soapyZone: AABBZone | null;
+  updraftZone: AABBZone | null;
+  bounds?: RoomBounds;
+}
 
 export class KokoController {
   public state: KokoState = 'Crawling';
@@ -22,11 +30,24 @@ export class KokoController {
   public isGrounded = true;
   public isOnSoapyFloor = false;
   public isInUpdraft = false;
+  public isRidingFanWind = false;
 
   public stamina = 100;
   public maxStamina = 100;
   public isInvincible = false;
   public stageInvincible = false;
+
+  private walkables: THREE.Object3D[];
+  private soapyZone: AABBZone | null;
+  private updraftZone: AABBZone | null;
+  private bounds: RoomBounds = {
+    halfW: ROOM_W * 0.5 * S,
+    halfD: ROOM_D * 0.5 * S,
+    height: ROOM_H * S,
+  };
+
+  private externalWindAccel = new THREE.Vector3();
+  private zeroStaminaDrainThisFrame = false;
 
   private staminaRegenMult = 1;
   private dodgeCooldownDuration = 0.85;
@@ -49,11 +70,32 @@ export class KokoController {
 
   constructor(
     private readonly rig: KokoRig,
-    private readonly walkables: THREE.Object3D[],
-    private readonly soapyZone: AABBZone,
-    private readonly updraftZone: AABBZone,
+    config: LevelPhysicsConfig,
     private readonly sound: SoundEngine
-  ) {}
+  ) {
+    this.walkables = config.walkables;
+    this.soapyZone = config.soapyZone;
+    this.updraftZone = config.updraftZone;
+    if (config.bounds) this.bounds = config.bounds;
+  }
+
+  public configureLevel(config: LevelPhysicsConfig): void {
+    this.walkables = config.walkables;
+    this.soapyZone = config.soapyZone;
+    this.updraftZone = config.updraftZone;
+    if (config.bounds) {
+      this.bounds = config.bounds;
+    } else {
+      this.bounds = {
+        halfW: ROOM_W * 0.5 * S,
+        halfD: ROOM_D * 0.5 * S,
+        height: ROOM_H * S,
+      };
+    }
+    this.externalWindAccel.set(0, 0, 0);
+    this.zeroStaminaDrainThisFrame = false;
+    this.isRidingFanWind = false;
+  }
 
   public applyStats(stats: ComputedStats): void {
     this.maxStamina = stats.maxStamina;
@@ -78,7 +120,35 @@ export class KokoController {
     this.iframeTimer = 0;
     this.dodgeCooldown = 0;
     this.stunTimer = 0;
+    this.externalWindAccel.set(0, 0, 0);
+    this.zeroStaminaDrainThisFrame = false;
+    this.isRidingFanWind = false;
     this.syncRigTransform();
+  }
+
+  public applyWindEffect(accel: THREE.Vector3, zeroStaminaDrain: boolean): void {
+    this.externalWindAccel.copy(accel);
+    this.zeroStaminaDrainThisFrame = zeroStaminaDrain;
+    this.isRidingFanWind = zeroStaminaDrain;
+  }
+
+  public applyKnockback(impulse: THREE.Vector3, stunDuration = 0): void {
+    this.velocity.add(impulse);
+    if (stunDuration > 0) {
+      this.state = 'Stunned';
+      this.stunTimer = stunDuration;
+      this.isGrounded = false;
+    }
+  }
+
+  public forceDropFromSurface(downwardImpulse = -4.5): void {
+    if (this.state === 'Crawling' && this.position.y > 0.35) {
+      this.isGrounded = false;
+      this.surfaceNormal.set(0, 1, 0);
+      this.targetSurfaceNormal.set(0, 1, 0);
+      this.velocity.y = downwardImpulse;
+      this.position.y -= 0.15;
+    }
   }
 
   public get effectiveInvincible(): boolean {
@@ -91,9 +161,9 @@ export class KokoController {
   }
 
   public getSurfaceLabel(): string {
-    if (this.state === 'Flying') return 'TERBANG';
-    if (this.state === 'Gliding') return 'MELAYANG';
-    if (this.state === 'Stunned') return 'PUSING';
+    if (this.state === 'Flying') return this.isRidingFanWind ? 'TERBANG · ARUS ANGIN' : 'TERBANG';
+    if (this.state === 'Gliding') return this.isRidingFanWind ? 'MELAYANG · ARUS ANGIN' : 'MELAYANG';
+    if (this.state === 'Stunned') return 'TERPENTAL';
     if (!this.isGrounded) return 'JATUH';
     if (this.surfaceNormal.y > 0.72) return 'MERAYAP · LANTAI';
     if (this.surfaceNormal.y < -0.72) return 'MERAYAP · PLAFON';
@@ -120,7 +190,7 @@ export class KokoController {
       this.clampRoomBounds();
       if (this.position.y <= 0.08) {
         this.position.y = 0.08;
-        this.velocity.set(0, 0, 0);
+        this.velocity.multiplyScalar(0.5);
       }
       if (this.stunTimer <= 0) {
         this.state = 'Crawling';
@@ -129,10 +199,12 @@ export class KokoController {
       }
       this.rig.updateAnimation(dt, time, this.state, 0);
       this.syncRigTransform();
+      this.externalWindAccel.set(0, 0, 0);
+      this.zeroStaminaDrainThisFrame = false;
+      this.isRidingFanWind = false;
       return;
     }
 
-    // Dodge action (works while crawling or flying)
     if (input.dodgeJustPressed && this.dodgeCooldown <= 0 && this.stamina >= 12) {
       this.performDodge(input, cameraForward);
     }
@@ -158,6 +230,11 @@ export class KokoController {
       .length();
     this.rig.updateAnimation(dt, time, this.state, planarVel);
     this.syncRigTransform();
+
+    // Reset per-frame wind impulses (reapplied before next step if inside cone)
+    this.externalWindAccel.set(0, 0, 0);
+    this.zeroStaminaDrainThisFrame = false;
+    this.isRidingFanWind = false;
   }
 
   private takeoff(): void {
@@ -193,7 +270,6 @@ export class KokoController {
     dodgeDir.normalize();
 
     this.velocity.addScaledVector(dodgeDir, this.dodgeImpulse);
-    // Quick positional burst while avoiding wall penetration
     const burstHit = this.raycastWalkables(
       this.position.clone().addScaledVector(this.surfaceNormal, 0.15),
       dodgeDir,
@@ -237,7 +313,6 @@ export class KokoController {
       }
     }
 
-    // Camera-relative movement direction on current surface
     let camDir = cameraForward.clone();
     const facingSurface = camDir.dot(this.surfaceNormal);
     const parallelThreshold = Math.abs(this.surfaceNormal.y) < 0.5 ? 0.5 : 0.85;
@@ -261,7 +336,6 @@ export class KokoController {
       moveDir.normalize();
     }
 
-    // Convex outer-edge wrap-around probe: catches table/counter lips so Koko wraps smoothly onto vertical sides
     if (hitCount === 0 && this.isGrounded && moveDir.lengthSq() > 0.001) {
       const wrapOrigin = this.position
         .clone()
@@ -322,7 +396,6 @@ export class KokoController {
       return;
     }
 
-    // Concave inner 90-degree wall/cabinet climb transition
     if (inputLen > 0.05 && moveDir.lengthSq() > 0.001) {
       const probeStart = this.position.clone().addScaledVector(this.surfaceNormal, 0.24);
       const wallReach = 0.48 + this.walkSpeed * dt;
@@ -342,10 +415,15 @@ export class KokoController {
       }
     }
 
-    // Soapy Floor Hazard check
-    this.isOnSoapyFloor = this.containsPoint(this.soapyZone, this.position);
+    this.isOnSoapyFloor = this.soapyZone ? this.containsPoint(this.soapyZone, this.position) : false;
 
     const targetVel = moveDir.clone().multiplyScalar(this.walkSpeed * inputLen);
+    // Apply external wind knockback while crawling in open wind cone
+    if (this.externalWindAccel.lengthSq() > 0.001) {
+      const windPlanar = this.externalWindAccel.clone().projectOnPlane(this.surfaceNormal);
+      targetVel.addScaledVector(windPlanar, 0.48);
+    }
+
     if (this.isOnSoapyFloor) {
       const slipBoost = targetVel.multiplyScalar(1.45);
       this.velocity.lerp(slipBoost, Math.min(1, dt * 3.0));
@@ -355,7 +433,6 @@ export class KokoController {
 
     this.position.addScaledVector(this.velocity, dt);
 
-    // Stable orthonormal basis alignment (avoids gimbal flips on vertical walls & inverted ceilings)
     const upVec = this.surfaceNormal.clone().normalize();
     let fwdVec =
       inputLen > 0.05 && moveDir.lengthSq() > 0.001
@@ -385,14 +462,16 @@ export class KokoController {
     let gliding = input.glideHeld;
     const inputLen = Math.min(1, Math.hypot(input.moveX, input.moveY));
 
-    if (ascending || inputLen > 0.05) {
-      this.stamina = Math.max(0, this.stamina - 12 * dt);
-      if (this.stamina <= 0) {
-        ascending = false;
-        gliding = true;
+    if (!this.zeroStaminaDrainThisFrame) {
+      if (ascending || inputLen > 0.05) {
+        this.stamina = Math.max(0, this.stamina - 12 * dt);
+        if (this.stamina <= 0) {
+          ascending = false;
+          gliding = true;
+        }
+      } else {
+        this.stamina = Math.min(this.maxStamina, this.stamina + 16 * this.staminaRegenMult * dt);
       }
-    } else {
-      this.stamina = Math.min(this.maxStamina, this.stamina + 16 * this.staminaRegenMult * dt);
     }
 
     this.state = gliding && !ascending ? 'Gliding' : 'Flying';
@@ -423,12 +502,19 @@ export class KokoController {
         ? -this.hoverGravity * 0.55
         : -this.hoverGravity;
 
-    this.isInUpdraft = this.containsPoint(this.updraftZone, this.position);
+    this.isInUpdraft = this.updraftZone ? this.containsPoint(this.updraftZone, this.position) : false;
     if (this.isInUpdraft) {
       verticalVel += 8.5;
       const t = performance.now() * 0.006;
       desiredHorizVel.x += Math.sin(t) * 2.4;
       desiredHorizVel.z += Math.cos(t * 1.3) * 2.4;
+    }
+
+    // Wind-tunnel glide boost from OscillatingFan
+    if (this.externalWindAccel.lengthSq() > 0.001) {
+      desiredHorizVel.x += this.externalWindAccel.x;
+      desiredHorizVel.z += this.externalWindAccel.z;
+      verticalVel += this.externalWindAccel.y;
     }
 
     const desiredVel = new THREE.Vector3(desiredHorizVel.x, verticalVel, desiredHorizVel.z);
@@ -486,9 +572,9 @@ export class KokoController {
   }
 
   private clampRoomBounds(): void {
-    const maxX = ROOM_W * 0.5 * S - 0.35;
-    const maxZ = ROOM_D * 0.5 * S - 0.35;
-    const maxY = ROOM_H * S - 0.25;
+    const maxX = this.bounds.halfW - 0.35;
+    const maxZ = this.bounds.halfD - 0.35;
+    const maxY = this.bounds.height - 0.25;
 
     if (this.position.x < -maxX) this.position.x = -maxX;
     if (this.position.x > maxX) this.position.x = maxX;

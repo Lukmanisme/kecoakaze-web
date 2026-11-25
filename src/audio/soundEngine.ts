@@ -159,6 +159,28 @@ export class SoundEngine {
     setTimeout(() => this.playTone(880, 1175, 0.18, 'triangle', 0.22), 90);
   }
 
+  public playFanHit(): void {
+    this.playTone(340, 110, 0.18, 'square', 0.2);
+  }
+
+  public playDrinkChoke(): void {
+    this.playTone(280, 420, 0.14, 'triangle', 0.18);
+    setTimeout(() => this.playTone(360, 180, 0.22, 'sawtooth', 0.16), 160);
+  }
+
+  public playDeskSlam(): void {
+    this.playTone(130, 45, 0.28, 'sawtooth', 0.28);
+  }
+
+  public playElectricBuzz(): void {
+    this.playTone(190, 240, 0.25, 'sawtooth', 0.17);
+    setTimeout(() => this.playTone(250, 210, 0.3, 'square', 0.14), 220);
+  }
+
+  public playFlashbangGlare(): void {
+    this.playTone(1200, 1650, 0.25, 'sine', 0.12);
+  }
+
   public playStageClear(): void {
     const notes = [523, 659, 784, 1046];
     notes.forEach((n, i) => {

@@ -6,23 +6,24 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <title>KECOAKAZE: Teror dari Udara — Level 1 Dapur</title>
+    <title>KECOAKAZE: Teror dari Udara</title>
   </head>
   <body>
     <div id="app">
       <canvas id="game-canvas"></canvas>
 
-      <!-- Danger Vignette & Windup Directional Telegraph -->
+      <!-- Monitor Flashbang Glare & Danger Vignette -->
+      <div id="flashbang-glare-overlay" class="flashbang-glare hidden"></div>
       <div id="danger-vignette" class="danger-vignette hidden"></div>
       <div id="threat-direction-indicator" class="threat-direction-indicator hidden">
         <div id="threat-arrow" class="threat-arrow">▲</div>
-        <div class="threat-warning-text">⚠ BAHAYA! TEKAN [Q] ELAK</div>
+        <div id="threat-warning-text" class="threat-warning-text">⚠ BAHAYA! TEKAN [Q] ELAK</div>
         <div class="threat-windup-track">
           <div id="threat-windup-fill" class="threat-windup-fill"></div>
         </div>
       </div>
 
-      <!-- World-projected Target Marker & Ibu Overhead Bubble -->
+      <!-- World-projected Target Marker & Boss Overhead Bubble -->
       <div id="world-overlays">
         <div id="target-marker" class="target-marker hidden"></div>
         <div id="ibu-bubble" class="ibu-bubble hidden">
@@ -35,7 +36,7 @@
       <div id="hud-layer" class="hud-layer">
         <!-- Top Left: Objective Card -->
         <div class="hud-card objective-card">
-          <div class="card-kicker">KECOAKAZE / BAB 01</div>
+          <div id="objective-chapter" class="card-kicker">KECOAKAZE / BAB 01</div>
           <div id="objective-title" class="objective-title">01 / CURI CEMILAN   0/3</div>
           <div id="objective-hint" class="objective-hint">
             Dekati bahan sayur. Tahan AKSI (E/F) saat prompt muncul.
@@ -50,9 +51,9 @@
             <span id="momentum-pct" class="momentum-pct">0%</span>
           </div>
           <div class="momentum-stars">
-            <span id="star-1" class="star-icon" title="Bintang 1 (30%)">★</span>
-            <span id="star-2" class="star-icon" title="Bintang 2 (60%)">★</span>
-            <span id="star-3" class="star-icon" title="Bintang 3 (90%)">★</span>
+            <span id="star-1" class="star-icon" title="Bintang 1">★</span>
+            <span id="star-2" class="star-icon" title="Bintang 2">★</span>
+            <span id="star-3" class="star-icon" title="Bintang 3">★</span>
           </div>
           <div class="momentum-track">
             <div id="momentum-fill" class="momentum-fill"></div>
@@ -140,26 +141,33 @@
         <div id="toast-banner" class="toast-banner hidden"></div>
       </div>
 
-      <!-- Start / Intro Overlay -->
+      <!-- Start / Stage Selector Overlay -->
       <div id="start-overlay" class="modal-backdrop">
         <div class="hud-card modal-card start-card">
-          <div class="card-kicker">LEVEL 01 · DAPUR HURU-HARA</div>
+          <div class="card-kicker">PILIH BAB · WEB 3D EDITION</div>
           <h1 class="modal-title">KECOAKAZE: Teror dari Udara</h1>
           <div id="start-save-summary" class="save-summary-pill">
-            MUTATION DNA: 0 · REKOR: ☆ ☆ ☆
+            MUTATION DNA: 0
           </div>
-          <p class="modal-desc">
-            Koko lapar, sementara Ibu sibuk memasak dan membersihkan dapur.
-            Merayap di lantai, dinding, dan plafon, sabotase <b>3 target keisengan</b>
-            secara berurutan, dan bersembunyi di celah aman saat dikejar!
-          </p>
-          <div class="start-checklist">
-            <div>1. <b>Curi Cemilan</b> — Sayur di Meja Dapur (Talenan)</div>
-            <div>2. <b>Sabotase Sup</b> — Wajan / Panci di Kompor Gas</div>
-            <div>3. <b>Pesta di Meja</b> — Hidangan di Meja Makan</div>
+
+          <div class="stage-selector">
+            <button id="btn-select-bab1" class="stage-tab active" type="button">
+              <div class="stage-tab-kicker">BAB 01</div>
+              <div class="stage-tab-name">Dapur Huru-Hara</div>
+              <div id="bab1-best-stars" class="stage-tab-stars">☆ ☆ ☆</div>
+            </button>
+            <button id="btn-select-bab2" class="stage-tab" type="button">
+              <div class="stage-tab-kicker">BAB 02</div>
+              <div class="stage-tab-name">Kamar Si Gamer</div>
+              <div id="bab2-best-stars" class="stage-tab-stars">☆ ☆ ☆</div>
+            </button>
           </div>
+
+          <p id="start-stage-desc" class="modal-desc"></p>
+          <div id="start-checklist" class="start-checklist"></div>
+
           <div class="modal-actions">
-            <button id="btn-start" class="primary-btn">MULAI MISI DAPUR</button>
+            <button id="btn-start" class="primary-btn">MULAI MISI</button>
             <button id="btn-start-lab" class="secondary-btn">🧬 LAB MUTASI</button>
           </div>
         </div>
@@ -179,6 +187,7 @@
             <button id="btn-resume" class="primary-btn">LANJUTKAN</button>
             <button id="btn-pause-touch" class="secondary-btn">📱 MODE TOUCH: OFF</button>
             <button id="btn-pause-restart" class="secondary-btn">ULANG STAGE</button>
+            <button id="btn-pause-menu" class="secondary-btn">MENU BAB</button>
           </div>
         </div>
       </div>
@@ -186,12 +195,9 @@
       <!-- Stage Result Modal -->
       <div id="result-overlay" class="modal-backdrop hidden">
         <div class="hud-card modal-card result-card">
-          <div class="card-kicker">BAB 01 SELESAI</div>
+          <div id="result-kicker" class="card-kicker">BAB 01 SELESAI</div>
           <h2 id="result-title" class="modal-title">DAPUR HURU-HARA / SELESAI</h2>
-          <p id="result-subtitle" class="modal-desc">
-            Koko selamat. Ibu menyerah pada dapurnya yang kacau.<br />
-            Dari balik pintu, terdengar tombol game si Anak...
-          </p>
+          <p id="result-subtitle" class="modal-desc"></p>
           <div class="result-stars">
             <span id="res-star-1" class="res-star">★</span>
             <span id="res-star-2" class="res-star">★</span>
@@ -201,13 +207,10 @@
           <div id="result-dna" class="result-dna">+500 MUTATION DNA</div>
           <div id="result-total-dna" class="result-stat">TOTAL DNA TERSIMPAN: 500</div>
           <div class="modal-actions">
-            <button id="btn-restart" class="primary-btn">MAIN LAGI</button>
+            <button id="btn-next-bab2" class="primary-btn">LANJUT BAB 02: KAMAR SI GAMER ▶</button>
+            <button id="btn-restart" class="secondary-btn">MAIN LAGI</button>
             <button id="btn-result-lab" class="secondary-btn">🧬 LAB MUTASI</button>
-            <button id="btn-epilog" class="secondary-btn">EPILOG</button>
-          </div>
-          <div id="epilog-note" class="epilog-note hidden">
-            <b>BAB 02: KAMAR SI GAMER (SEGERA HADIR)</b><br />
-            Koko mengintip dari celah pintu — cahaya RGB dan kipas angin berosilasi menanti di level berikutnya!
+            <button id="btn-result-menu" class="secondary-btn">MENU BAB</button>
           </div>
         </div>
       </div>
@@ -229,12 +232,13 @@
       <div id="caught-overlay" class="modal-backdrop hidden">
         <div class="hud-card modal-card">
           <div class="card-kicker" style="color: #ff6e5c">TERTANGKAP!</div>
-          <h2 class="modal-title">KEGEBUK SAPU / SANDAL!</h2>
+          <h2 class="modal-title">TERKENA SERANGAN!</h2>
           <p id="caught-reason" class="modal-desc">
-            Ibu berhasil menghajar Koko. Semua progres stage di-reset ke awal!
+            Semua progres stage di-reset ke awal!
           </p>
           <div class="modal-actions">
             <button id="btn-retry" class="primary-btn">COBA LAGI</button>
+            <button id="btn-caught-menu" class="secondary-btn">MENU BAB</button>
           </div>
         </div>
       </div>

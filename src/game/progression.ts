@@ -1,4 +1,4 @@
-import { ComputedStats, PlayerSaveData, UpgradeKey } from '../types';
+import { ComputedStats, PlayerSaveData, StageId, UpgradeKey } from '../types';
 
 const STORAGE_KEY = 'kecoakaze_web_save_v1';
 export const MAX_UPGRADE_LEVEL = 3;
@@ -22,9 +22,9 @@ export const UPGRADE_DEFS: UpgradeDefinition[] = [
   {
     key: 'kaki',
     title: 'Kaki Senyap',
-    desc: 'Mengurangi jarak & kecepatan deteksi penglihatan maupun pendengaran Ibu.',
+    desc: 'Mengurangi jarak & kecepatan deteksi penglihatan maupun pendengaran musuh.',
     costs: [120, 240, 420],
-    bonusText: (lvl) => `Deteksi Ibu -${lvl * 12}%`,
+    bonusText: (lvl) => `Deteksi Musuh -${lvl * 12}%`,
   },
   {
     key: 'refleks',
@@ -36,7 +36,7 @@ export const UPGRADE_DEFS: UpgradeDefinition[] = [
   {
     key: 'rahang',
     title: 'Rahang Rakus',
-    desc: 'Mempercepat durasi tahan tombol AKSI (E/F) saat menyabotase makanan.',
+    desc: 'Mempercepat durasi tahan tombol AKSI (E/F) saat menyabotase target.',
     costs: [110, 230, 400],
     bonusText: (lvl) => `Kecepatan Sabotase +${lvl * 20}%`,
   },
@@ -46,6 +46,7 @@ function defaultSave(): PlayerSaveData {
   return {
     dna: 0,
     bestStars: 0,
+    bestStarsByStage: { bab1: 0, bab2: 0 },
     bestMomentum: 0,
     clears: 0,
     upgrades: {
@@ -73,9 +74,18 @@ export class ProgressionManager {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       if (!raw) return defaultSave();
       const parsed = JSON.parse(raw) as Partial<PlayerSaveData>;
+      const legacyBest = typeof parsed.bestStars === 'number' ? Math.min(3, Math.max(0, parsed.bestStars)) : 0;
       return {
         dna: typeof parsed.dna === 'number' && parsed.dna >= 0 ? Math.floor(parsed.dna) : 0,
-        bestStars: typeof parsed.bestStars === 'number' ? Math.min(3, Math.max(0, parsed.bestStars)) : 0,
+        bestStars: legacyBest,
+        bestStarsByStage: {
+          bab1: typeof parsed.bestStarsByStage?.bab1 === 'number'
+            ? Math.min(3, Math.max(0, parsed.bestStarsByStage.bab1))
+            : legacyBest,
+          bab2: typeof parsed.bestStarsByStage?.bab2 === 'number'
+            ? Math.min(3, Math.max(0, parsed.bestStarsByStage.bab2))
+            : 0,
+        },
         bestMomentum: typeof parsed.bestMomentum === 'number' ? Math.min(100, Math.max(0, parsed.bestMomentum)) : 0,
         clears: typeof parsed.clears === 'number' ? Math.max(0, parsed.clears) : 0,
         upgrades: {
@@ -104,9 +114,14 @@ export class ProgressionManager {
     this.persist();
   }
 
-  public recordStageClear(stars: number, finalMomentum: number, rewardDna: number): void {
+  public recordStageClear(stageId: StageId, stars: number, finalMomentum: number, rewardDna: number): void {
     this.data.dna += Math.round(rewardDna);
-    this.data.bestStars = Math.max(this.data.bestStars, stars);
+    this.data.bestStarsByStage[stageId] = Math.max(this.data.bestStarsByStage[stageId], stars);
+    this.data.bestStars = Math.max(
+      this.data.bestStars,
+      this.data.bestStarsByStage.bab1,
+      this.data.bestStarsByStage.bab2
+    );
     this.data.bestMomentum = Math.max(this.data.bestMomentum, Math.round(finalMomentum));
     this.data.clears += 1;
     this.persist();

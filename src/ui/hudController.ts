@@ -1,11 +1,17 @@
 import * as THREE from 'three';
-import { InputState } from '../types';
+import { HudSnapshot, InputState, StageController, StageId } from '../types';
 import { KokoController } from '../physics/kokoPhysics';
-import { IbuBossController } from '../ai/ibuBoss';
 import { SurfaceAlignedCamera } from '../camera/surfaceCamera';
-import { KitchenStageManager } from '../game/stageManager';
 import { SoundEngine } from '../audio/soundEngine';
-import { MAX_UPGRADE_LEVEL, UPGRADE_DEFS } from '../game/progression';
+import { MAX_UPGRADE_LEVEL, ProgressionManager, UPGRADE_DEFS } from '../game/progression';
+
+export interface StageBridge {
+  getActiveStage: () => StageController;
+  getSelectedStageId: () => StageId;
+  selectAndLoadStage: (id: StageId, startImmediately: boolean) => void;
+  progression: ProgressionManager;
+  isFlashbangGlare: () => boolean;
+}
 
 export class HUDController {
   private readonly keys = new Set<string>();
@@ -30,7 +36,10 @@ export class HUDController {
   private toastUntil = 0;
   private labReturnTarget: 'start' | 'result' = 'start';
 
+  private bridge: StageBridge | null = null;
+
   // DOM refs
+  private readonly objectiveChapter = document.getElementById('objective-chapter')!;
   private readonly objectiveTitle = document.getElementById('objective-title')!;
   private readonly objectiveHint = document.getElementById('objective-hint')!;
   private readonly hidingBadge = document.getElementById('hiding-badge')!;
@@ -54,9 +63,11 @@ export class HUDController {
   private readonly ibuAlertBadge = document.getElementById('ibu-alert-badge')!;
   private readonly ibuDialogue = document.getElementById('ibu-dialogue')!;
 
+  private readonly flashbangGlare = document.getElementById('flashbang-glare-overlay')!;
   private readonly dangerVignette = document.getElementById('danger-vignette')!;
   private readonly threatIndicator = document.getElementById('threat-direction-indicator')!;
   private readonly threatArrow = document.getElementById('threat-arrow')!;
+  private readonly threatWarningText = document.getElementById('threat-warning-text')!;
   private readonly threatWindupFill = document.getElementById('threat-windup-fill')!;
 
   private readonly pointerLockHint = document.getElementById('pointer-lock-hint')!;
@@ -78,18 +89,28 @@ export class HUDController {
 
   private readonly startOverlay = document.getElementById('start-overlay')!;
   private readonly startSaveSummary = document.getElementById('start-save-summary')!;
+  private readonly startStageDesc = document.getElementById('start-stage-desc')!;
+  private readonly startChecklist = document.getElementById('start-checklist')!;
+  private readonly btnSelectBab1 = document.getElementById('btn-select-bab1')!;
+  private readonly btnSelectBab2 = document.getElementById('btn-select-bab2')!;
+  private readonly bab1StarsEl = document.getElementById('bab1-best-stars')!;
+  private readonly bab2StarsEl = document.getElementById('bab2-best-stars')!;
+
   private readonly pauseOverlay = document.getElementById('pause-overlay')!;
   private readonly resultOverlay = document.getElementById('result-overlay')!;
+  private readonly resultKicker = document.getElementById('result-kicker')!;
+  private readonly resultTitle = document.getElementById('result-title')!;
+  private readonly resultSubtitle = document.getElementById('result-subtitle')!;
   private readonly resultTotalDna = document.getElementById('result-total-dna')!;
+  private readonly btnNextBab2 = document.getElementById('btn-next-bab2')!;
+
   private readonly labOverlay = document.getElementById('lab-overlay')!;
   private readonly labDnaBalance = document.getElementById('lab-dna-balance')!;
   private readonly labGrid = document.getElementById('lab-grid')!;
   private readonly caughtOverlay = document.getElementById('caught-overlay')!;
   private readonly caughtReason = document.getElementById('caught-reason')!;
-  private readonly epilogNote = document.getElementById('epilog-note')!;
 
   private readonly projVec = new THREE.Vector3();
-  private stageRef: KitchenStageManager | null = null;
 
   constructor(
     private readonly cam: SurfaceAlignedCamera,
@@ -130,7 +151,7 @@ export class HUDController {
         maybePromise.catch(() => {});
       }
     } catch {
-      // Browser may block pointer lock in restricted contexts; drag fallback remains active
+      // Fallback drag mode stays active
     }
   }
 
@@ -144,24 +165,36 @@ export class HUDController {
     }
   }
 
-  public bindStageActions(stage: KitchenStageManager): void {
-    this.stageRef = stage;
-    this.refreshStartSummary(stage);
+  public bindStageBridge(bridge: StageBridge): void {
+    this.bridge = bridge;
+    this.refreshStartMenu();
+
+    this.btnSelectBab1.addEventListener('click', () => {
+      this.sound.unlock();
+      bridge.selectAndLoadStage('bab1', false);
+      this.refreshStartMenu();
+    });
+
+    this.btnSelectBab2.addEventListener('click', () => {
+      this.sound.unlock();
+      bridge.selectAndLoadStage('bab2', false);
+      this.refreshStartMenu();
+    });
 
     document.getElementById('btn-start')!.addEventListener('click', () => {
       this.sound.unlock();
       this.startOverlay.classList.add('hidden');
-      stage.isStarted = true;
-      stage.resetStage();
+      bridge.selectAndLoadStage(bridge.getSelectedStageId(), true);
       this.tryLockPointer();
     });
 
     const togglePause = () => {
-      if (!stage.isStarted || stage.isStageCleared) return;
-      stage.isPaused = !stage.isPaused;
-      this.pauseOverlay.classList.toggle('hidden', !stage.isPaused);
+      const st = bridge.getActiveStage();
+      if (!st.isStarted || st.isStageCleared) return;
+      st.isPaused = !st.isPaused;
+      this.pauseOverlay.classList.toggle('hidden', !st.isPaused);
       this.clearInputs();
-      if (stage.isPaused) {
+      if (st.isPaused) {
         this.releasePointerLockSafe();
       } else {
         this.tryLockPointer();
@@ -171,47 +204,71 @@ export class HUDController {
     this.btnPause.addEventListener('click', togglePause);
 
     document.getElementById('btn-resume')!.addEventListener('click', () => {
-      stage.isPaused = false;
+      const st = bridge.getActiveStage();
+      st.isPaused = false;
       this.pauseOverlay.classList.add('hidden');
       this.tryLockPointer();
     });
 
-    const restartAll = () => {
+    const restartCurrent = () => {
+      const st = bridge.getActiveStage();
       this.pauseOverlay.classList.add('hidden');
       this.resultOverlay.classList.add('hidden');
       this.caughtOverlay.classList.add('hidden');
       this.labOverlay.classList.add('hidden');
-      this.epilogNote.classList.add('hidden');
-      stage.isPaused = false;
-      stage.resetStage();
+      st.isPaused = false;
+      st.isStarted = true;
+      st.resetStage();
       this.clearInputs();
       this.tryLockPointer();
     };
 
-    document.getElementById('btn-pause-restart')!.addEventListener('click', restartAll);
-    document.getElementById('btn-restart')!.addEventListener('click', restartAll);
-    document.getElementById('btn-retry')!.addEventListener('click', restartAll);
+    const openMainMenu = () => {
+      const st = bridge.getActiveStage();
+      st.isPaused = false;
+      st.isStarted = false;
+      this.pauseOverlay.classList.add('hidden');
+      this.resultOverlay.classList.add('hidden');
+      this.caughtOverlay.classList.add('hidden');
+      this.labOverlay.classList.add('hidden');
+      this.releasePointerLockSafe();
+      this.clearInputs();
+      this.refreshStartMenu();
+      this.startOverlay.classList.remove('hidden');
+    };
 
-    document.getElementById('btn-epilog')!.addEventListener('click', () => {
-      this.epilogNote.classList.toggle('hidden');
+    document.getElementById('btn-pause-restart')!.addEventListener('click', restartCurrent);
+    document.getElementById('btn-restart')!.addEventListener('click', restartCurrent);
+    document.getElementById('btn-retry')!.addEventListener('click', restartCurrent);
+
+    document.getElementById('btn-pause-menu')!.addEventListener('click', openMainMenu);
+    document.getElementById('btn-result-menu')!.addEventListener('click', openMainMenu);
+    document.getElementById('btn-caught-menu')!.addEventListener('click', openMainMenu);
+
+    this.btnNextBab2.addEventListener('click', () => {
+      this.sound.unlock();
+      this.resultOverlay.classList.add('hidden');
+      this.clearInputs();
+      bridge.selectAndLoadStage('bab2', true);
+      this.tryLockPointer();
     });
 
-    // Lab Mutasi modal open/close
+    // Lab Mutasi modal
     document.getElementById('btn-start-lab')!.addEventListener('click', () => {
       this.sound.unlock();
-      this.openLab('start', stage);
+      this.openLab('start');
     });
     document.getElementById('btn-result-lab')!.addEventListener('click', () => {
       this.sound.unlock();
-      this.openLab('result', stage);
+      this.openLab('result');
     });
     document.getElementById('btn-lab-close')!.addEventListener('click', () => {
       this.labOverlay.classList.add('hidden');
       if (this.labReturnTarget === 'start') {
-        this.refreshStartSummary(stage);
+        this.refreshStartMenu();
         this.startOverlay.classList.remove('hidden');
       } else {
-        this.resultTotalDna.textContent = `TOTAL DNA TERSIMPAN: ${stage.progression.save.dna}`;
+        this.resultTotalDna.textContent = `TOTAL DNA TERSIMPAN: ${bridge.progression.save.dna}`;
         this.resultOverlay.classList.remove('hidden');
       }
     });
@@ -240,15 +297,15 @@ export class HUDController {
           this.suppressAutoPauseOnUnlock = false;
           return;
         }
-        // ESC exited pointer lock while actively playing -> open Pause menu
+        const st = bridge.getActiveStage();
         const noModalOpen =
           this.startOverlay.classList.contains('hidden') &&
           this.resultOverlay.classList.contains('hidden') &&
           this.caughtOverlay.classList.contains('hidden') &&
           this.labOverlay.classList.contains('hidden');
 
-        if (stage.isStarted && !stage.isPaused && !stage.isStageCleared && noModalOpen) {
-          stage.isPaused = true;
+        if (st.isStarted && !st.isPaused && !st.isStageCleared && noModalOpen) {
+          st.isPaused = true;
           this.pauseOverlay.classList.remove('hidden');
           this.clearInputs();
         }
@@ -257,14 +314,15 @@ export class HUDController {
 
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Escape' || e.code === 'KeyP') {
+        const st = bridge.getActiveStage();
         const noModalOpen =
           this.startOverlay.classList.contains('hidden') &&
           this.resultOverlay.classList.contains('hidden') &&
           this.caughtOverlay.classList.contains('hidden') &&
           this.labOverlay.classList.contains('hidden');
 
-        if (stage.isStarted && !stage.isStageCleared && noModalOpen) {
-          if (e.code === 'Escape' && this.isPointerLocked) return; // pointerlockchange will pause
+        if (st.isStarted && !st.isStageCleared && noModalOpen) {
+          if (e.code === 'Escape' && this.isPointerLocked) return;
           togglePause();
         }
       }
@@ -276,28 +334,53 @@ export class HUDController {
     });
   }
 
-  private refreshStartSummary(stage: KitchenStageManager): void {
-    const { dna, bestStars } = stage.progression.save;
-    const starsStr = [1, 2, 3].map((i) => (i <= bestStars ? '★' : '☆')).join(' ');
-    this.startSaveSummary.textContent = `MUTATION DNA: ${dna} · REKOR: ${starsStr}`;
+  public refreshStartMenu(): void {
+    if (!this.bridge) return;
+    const { dna, bestStarsByStage } = this.bridge.progression.save;
+    const selected = this.bridge.getSelectedStageId();
+
+    this.startSaveSummary.textContent = `MUTATION DNA: ${dna}`;
+    this.bab1StarsEl.textContent = [1, 2, 3].map((i) => (i <= bestStarsByStage.bab1 ? '★' : '☆')).join(' ');
+    this.bab2StarsEl.textContent = [1, 2, 3].map((i) => (i <= bestStarsByStage.bab2 ? '★' : '☆')).join(' ');
+
+    this.btnSelectBab1.classList.toggle('active', selected === 'bab1');
+    this.btnSelectBab2.classList.toggle('active', selected === 'bab2');
+
+    if (selected === 'bab1') {
+      this.startStageDesc.innerHTML =
+        'Koko lapar di dapur rumah. Merayap 360°, sabotase <b>3 target keisengan</b>, dan bersembunyi di celah aman saat dikejar Ibu!';
+      this.startChecklist.innerHTML =
+        '<div>1. <b>Curi Cemilan</b> — Sayur di Meja Dapur (Talenan)</div>' +
+        '<div>2. <b>Sabotase Sup</b> — Wajan / Panci di Kompor Gas</div>' +
+        '<div>3. <b>Pesta di Meja</b> — Hidangan di Meja Makan</div>';
+    } else {
+      this.startStageDesc.innerHTML =
+        'Menyusup ke kamar gaming gelap penuh neon! Manfaatkan <b>kipas angin berosilasi</b>, hindari <b>flashbang monitor</b>, dan waspadai <b>raket nyamuk elektrik</b>!';
+      this.startChecklist.innerHTML =
+        '<div>1. <b>Kontaminasi Minuman</b> — Kaleng energi di sisi kiri meja</div>' +
+        '<div>2. <b>Sabotase Koneksi LAN</b> — Cabut kabel LAN di belakang PC</div>' +
+        '<div>3. <b>Teror Layar Monitor</b> — Naik rak dinding &amp; meluncur lewat angin kipas!</div>';
+    }
   }
 
-  private openLab(from: 'start' | 'result', stage: KitchenStageManager): void {
+  private openLab(from: 'start' | 'result'): void {
     this.labReturnTarget = from;
     this.startOverlay.classList.add('hidden');
     this.resultOverlay.classList.add('hidden');
-    this.renderLab(stage);
+    this.renderLab();
     this.labOverlay.classList.remove('hidden');
   }
 
-  private renderLab(stage: KitchenStageManager): void {
-    const save = stage.progression.save;
+  private renderLab(): void {
+    if (!this.bridge) return;
+    const prog = this.bridge.progression;
+    const save = prog.save;
     this.labDnaBalance.textContent = `MUTATION DNA: ${save.dna}`;
     this.labGrid.innerHTML = '';
 
     for (const def of UPGRADE_DEFS) {
       const lvl = save.upgrades[def.key];
-      const cost = stage.progression.getNextCost(def.key);
+      const cost = prog.getNextCost(def.key);
 
       const card = document.createElement('div');
       card.className = 'lab-item';
@@ -334,10 +417,10 @@ export class HUDController {
         btn.textContent = `UPGRADE Lv.${lvl + 1} (${cost} DNA)`;
         btn.disabled = save.dna < cost;
         btn.addEventListener('click', () => {
-          if (stage.progression.buyUpgrade(def.key)) {
-            stage.applyUpgrades();
+          if (prog.buyUpgrade(def.key)) {
+            this.bridge?.getActiveStage().applyUpgrades();
             this.sound.playStarUnlock();
-            this.renderLab(stage);
+            this.renderLab();
           }
         });
       }
@@ -367,6 +450,7 @@ export class HUDController {
   }
 
   public showStageResult(
+    stageId: StageId,
     stars: number,
     finalMomentum: number,
     dnaEarned: number,
@@ -374,6 +458,21 @@ export class HUDController {
   ): void {
     this.clearInputs();
     this.releasePointerLockSafe();
+
+    if (stageId === 'bab1') {
+      this.resultKicker.textContent = 'BAB 01 SELESAI';
+      this.resultTitle.textContent = 'DAPUR HURU-HARA / SELESAI';
+      this.resultSubtitle.innerHTML =
+        'Koko selamat. Ibu menyerah pada dapurnya yang kacau.<br/>Dari balik pintu, terdengar suara game si Anak...';
+      this.btnNextBab2.classList.remove('hidden');
+    } else {
+      this.resultKicker.textContent = 'BAB 02 SELESAI';
+      this.resultTitle.textContent = 'BAB 02 SELESAI: KAMAR SI GAMER';
+      this.resultSubtitle.innerHTML =
+        'Kursi gaming terjungkal dan Si Gamer lari tunggang-langgang!<br/>Koko menguasai kamar gaming dengan sempurna.';
+      this.btnNextBab2.classList.add('hidden');
+    }
+
     document.getElementById('result-momentum')!.textContent =
       `MOMENTUM TEROR AKHIR: ${Math.round(finalMomentum)}%`;
     document.getElementById('result-dna')!.textContent = `+${dnaEarned} MUTATION DNA`;
@@ -417,123 +516,71 @@ export class HUDController {
 
   public updateHUD(
     time: number,
-    stage: KitchenStageManager,
+    snap: HudSnapshot,
     koko: KokoController,
-    ibu: IbuBossController
+    totalDna: number,
+    isPaused: boolean,
+    isStarted: boolean
   ): void {
-    const target = stage.getCurrentObjectiveProp();
-    const discoveredCount = [0, 1, 2].filter((i) => stage.stars[i]).length;
+    this.objectiveChapter.textContent = snap.chapterLabel;
+    this.objectiveTitle.textContent = snap.objectiveTitle;
+    this.objectiveHint.textContent = snap.objectiveHint;
 
-    const titles = ['01 / CURI CEMILAN', '02 / SABOTASE SUP', '03 / PESTA DI MEJA'];
-    const hints = [
-      'Dekati bahan sayur di Meja Dapur. Tahan AKSI (E/F) untuk makan.',
-      'Tunggu Ibu menjauh dari kompor. Dekati wajan/panci, tahan AKSI (E/F).',
-      'Manfaatkan celah rutinitas. Dekati hidangan di Meja Makan, tahan AKSI (E/F).',
-    ];
-
-    if (!target || stage.isFinaleActive || stage.isStageCleared) {
-      this.objectiveTitle.textContent = stage.isStageCleared
-        ? 'DAPUR BERHASIL DILEWATI'
-        : 'FINALE / DAPUR HURU-HARA';
-      this.objectiveHint.textContent = 'Koko selamat. Ibu butuh waktu menenangkan diri!';
-      this.targetMarker.classList.add('hidden');
-    } else {
-      const idx = target.type;
-      this.objectiveTitle.textContent = `${titles[idx]}   ${discoveredCount}/3`;
-      this.objectiveHint.textContent = target.isRuined
-        ? 'Keisengan siap! Menjauh & tunggu Ibu menemukannya.'
-        : hints[idx];
-    }
-
-    if (stage.activeHidingSpot) {
+    if (snap.activeHidingSpot) {
       this.hidingBadge.classList.remove('hidden');
-      const risky = stage.activeHidingSpot.safety === 'Risky';
+      const risky = snap.activeHidingSpot.safety === 'Risky';
       this.hidingBadge.classList.toggle('risky', risky);
       this.hidingBadge.textContent = risky
-        ? `SEMBUNYI BERISIKO · ${stage.activeHidingSpot.name}`
-        : `SEMBUNYI AMAN · ${stage.activeHidingSpot.name}`;
+        ? `SEMBUNYI BERISIKO · ${snap.activeHidingSpot.name}`
+        : `SEMBUNYI AMAN · ${snap.activeHidingSpot.name}`;
     } else {
       this.hidingBadge.classList.add('hidden');
     }
 
-    const pct = Math.round(stage.gauge);
+    const pct = Math.round(snap.gauge);
     this.momentumPct.textContent = `${pct}%`;
     this.momentumFill.style.width = `${pct}%`;
     for (let i = 0; i < 3; i++) {
-      this.starEls[i].classList.toggle('unlocked', stage.stars[i]);
+      this.starEls[i].classList.toggle('unlocked', snap.stars[i]);
     }
 
-    const det = Math.round(ibu.detection);
-    this.detectionFill.style.width = `${det}%`;
-    let statusText = 'IBU SIBUK / JAGA JARAK';
-    let color = '#59e0ba';
-    switch (ibu.bossState) {
-      case 'PanicDefeated':
-        statusText = 'IBU MENYERAH / KOKO SELAMAT';
-        color = '#59e0ba';
-        break;
-      case 'Mengamuk':
-        statusText = 'FINALE / DAPUR HURU-HARA';
-        color = '#ffbf52';
-        break;
-      case 'MencariKoko':
-      case 'MemeriksaSembunyi':
-        statusText = 'IBU MENCARI / TETAP SEMBUNYI';
-        color = '#ffbf52';
-        break;
-      case 'WindupAttack':
-        statusText = '⚠ ANCAMAN! SIAP ELAK [Q]!';
-        color = '#ff4433';
-        break;
-      case 'AngerCombat':
-      case 'ShockedFreeze':
-      case 'CariSapu':
-        statusText = 'BAHAYA / PUTUS GARIS PANDANG!';
-        color = '#ff6e5c';
-        break;
-      case 'SuspiciousAlert':
-      case 'Marah':
-        statusText = 'IBU WASPADA / CARI CELAH';
-        color = '#ffbf52';
-        break;
-    }
-    this.threatStatus.textContent = statusText;
-    this.threatStatus.style.color = color;
-    this.detectionFill.style.background = color;
+    this.detectionFill.style.width = `${Math.round(snap.detection)}%`;
+    this.threatStatus.textContent = snap.threatStatus;
+    this.threatStatus.style.color = snap.threatColor;
+    this.detectionFill.style.background = snap.threatColor;
 
-    let surf = koko.getSurfaceLabel();
-    if (koko.isOnSoapyFloor) surf += ' · LICIN!';
-    if (koko.isInUpdraft) surf += ' · UPDRAFT!';
-    this.surfaceStatus.textContent = surf;
-
+    this.surfaceStatus.textContent = koko.getSurfaceLabel() + snap.extraStatusTag;
     this.staminaFill.style.width = `${Math.round((koko.stamina / koko.maxStamina) * 100)}%`;
-    this.dnaHudBadge.textContent = `${stage.progression.save.dna} DNA`;
+    this.dnaHudBadge.textContent = `${totalDna} DNA`;
 
-    // Pointer lock hint (desktop when unlocked during play)
+    // Monitor Flashbang Glare overlay
+    const glareOn = Boolean(this.bridge?.isFlashbangGlare()) && isStarted && !isPaused;
+    this.flashbangGlare.classList.toggle('hidden', !glareOn);
+
     const showLockHint =
       !this.touchMode &&
       !this.isPointerLocked &&
-      stage.isStarted &&
-      !stage.isPaused &&
-      !stage.isStageCleared;
+      isStarted &&
+      !isPaused &&
+      !snap.isStageCleared;
     this.pointerLockHint.classList.toggle('hidden', !showLockHint);
 
-    // Contextual Sabotage Prompt (Adaptive: Touch Button vs Desktop Prompt)
-    if (stage.nearbyProp && !stage.nearbyProp.isRuined) {
+    // Contextual Sabotage Prompt
+    if (snap.nearbyProp && !snap.nearbyProp.isRuined) {
       const prog = Math.min(
         1,
-        stage.nearbyProp.currentProgress / stage.nearbyProp.requiredHoldDuration
+        snap.nearbyProp.currentProgress / snap.nearbyProp.requiredHoldDuration
       );
       if (this.touchMode) {
         this.btnAction.classList.remove('hidden');
-        this.btnActionLabel.textContent = stage.nearbyProp.actionVerb;
+        this.btnActionLabel.textContent = snap.nearbyProp.actionVerb;
         const circ = 175.9;
         this.actionRing.style.strokeDashoffset = `${circ * (1 - prog)}`;
         this.desktopActionPrompt.classList.add('hidden');
       } else {
         this.btnAction.classList.add('hidden');
         this.desktopActionPrompt.classList.remove('hidden');
-        this.desktopActionText.textContent = `Tahan [E / F] ${stage.nearbyProp.actionVerb} — ${stage.nearbyProp.targetName}`;
+        this.desktopActionText.textContent = `Tahan [E / F] ${snap.nearbyProp.actionVerb} — ${snap.nearbyProp.targetName}`;
         this.desktopActionFill.style.width = `${Math.round(prog * 100)}%`;
       }
     } else {
@@ -543,20 +590,21 @@ export class HUDController {
     }
 
     // Windup Danger Vignette & Directional Arrow
-    if (ibu.isWindingUp && !stage.isPaused && !stage.isStageCleared) {
+    if (snap.isWindingUp && !isPaused && !snap.isStageCleared) {
       this.dangerVignette.classList.remove('hidden');
       this.threatIndicator.classList.remove('hidden');
-      this.threatWindupFill.style.width = `${Math.round(ibu.windupProgress * 100)}%`;
+      this.threatWarningText.textContent = snap.windupWarningText;
+      this.threatWindupFill.style.width = `${Math.round(snap.windupProgress * 100)}%`;
 
       const camFwd = this.cam.getForward(new THREE.Vector3());
       const camRight = new THREE.Vector3().crossVectors(camFwd, new THREE.Vector3(0, 1, 0)).normalize();
-      const toIbu = ibu.rig.root.position.clone().sub(koko.position);
-      toIbu.y = 0;
-      if (toIbu.lengthSq() > 0.001) {
-        toIbu.normalize();
+      const toBoss = snap.bossWorldPos.clone().sub(koko.position);
+      toBoss.y = 0;
+      if (toBoss.lengthSq() > 0.001) {
+        toBoss.normalize();
         const flatFwd = new THREE.Vector3(camFwd.x, 0, camFwd.z).normalize();
         const flatRight = new THREE.Vector3(camRight.x, 0, camRight.z).normalize();
-        const angle = Math.atan2(toIbu.dot(flatRight), toIbu.dot(flatFwd));
+        const angle = Math.atan2(toBoss.dot(flatRight), toBoss.dot(flatFwd));
         this.threatArrow.style.transform = `rotate(${THREE.MathUtils.radToDeg(angle)}deg)`;
       }
     } else {
@@ -571,17 +619,17 @@ export class HUDController {
       this.toastBanner.classList.add('hidden');
     }
 
-    this.updateWorldMarker(target && !target.isRuined ? target : null);
-    this.updateIbuBubble(ibu);
+    this.updateWorldMarker(snap.targetPosition, snap.targetMarkerText);
+    this.updateBossBubble(snap);
   }
 
-  private updateWorldMarker(target: ReturnType<KitchenStageManager['getCurrentObjectiveProp']>): void {
-    if (!target) {
+  private updateWorldMarker(pos: THREE.Vector3 | null, label: string): void {
+    if (!pos) {
       this.targetMarker.classList.add('hidden');
       return;
     }
     this.targetMarker.classList.remove('hidden');
-    this.projVec.copy(target.position).add(new THREE.Vector3(0, 1.4, 0));
+    this.projVec.copy(pos).add(new THREE.Vector3(0, 1.4, 0));
     this.projVec.project(this.cam.camera);
 
     const w = window.innerWidth;
@@ -598,13 +646,11 @@ export class HUDController {
 
     this.targetMarker.style.left = `${x}px`;
     this.targetMarker.style.top = `${y}px`;
-    this.targetMarker.textContent = `${behind ? 'DI BELAKANG / ' : ''}0${target.type + 1}\n${target.targetName}`;
+    this.targetMarker.textContent = `${behind ? 'DI BELAKANG / ' : ''}${label}`;
   }
 
-  private updateIbuBubble(ibu: IbuBossController): void {
-    const headPos = ibu.rig.root.position
-      .clone()
-      .add(new THREE.Vector3(0, 2.38 * ibu.rig.worldScale, 0));
+  private updateBossBubble(snap: HudSnapshot): void {
+    const headPos = snap.bossWorldPos.clone().add(new THREE.Vector3(0, snap.bossHeadHeight, 0));
     this.projVec.copy(headPos).project(this.cam.camera);
 
     if (this.projVec.z > 1 || this.projVec.x < -1.1 || this.projVec.x > 1.1) {
@@ -618,22 +664,13 @@ export class HUDController {
     this.ibuBubble.style.left = `${x}px`;
     this.ibuBubble.style.top = `${y}px`;
 
-    this.ibuDialogue.textContent = ibu.activeDialogue;
+    this.ibuDialogue.textContent = snap.bossDialogue;
 
-    if (
-      ibu.bossState === 'AngerCombat' ||
-      ibu.bossState === 'WindupAttack' ||
-      ibu.bossState === 'ShockedFreeze' ||
-      ibu.bossState === 'Mengamuk'
-    ) {
+    if (snap.bossBadge === '!') {
       this.ibuAlertBadge.classList.remove('hidden');
       this.ibuAlertBadge.textContent = '!';
       this.ibuAlertBadge.style.background = '#ff6e5c';
-    } else if (
-      ibu.bossState === 'SuspiciousAlert' ||
-      ibu.bossState === 'MencariKoko' ||
-      ibu.bossState === 'MemeriksaSembunyi'
-    ) {
+    } else if (snap.bossBadge === '?') {
       this.ibuAlertBadge.classList.remove('hidden');
       this.ibuAlertBadge.textContent = '?';
       this.ibuAlertBadge.style.background = '#ffbf52';
@@ -670,7 +707,6 @@ export class HUDController {
 
     window.addEventListener('blur', () => this.clearInputs());
 
-    // Auto-enable touch controls if user actually touches screen
     window.addEventListener(
       'touchstart',
       () => {
@@ -681,16 +717,16 @@ export class HUDController {
       { passive: true }
     );
 
-    // Pointer Lock Mouse Look + Drag Fallback
     this.lookZone.addEventListener('pointerdown', (e) => {
       this.sound.unlock();
+      const st = this.bridge?.getActiveStage();
       if (
         e.pointerType === 'mouse' &&
         !this.touchMode &&
         !this.isPointerLocked &&
-        this.stageRef?.isStarted &&
-        !this.stageRef?.isPaused &&
-        !this.stageRef?.isStageCleared
+        st?.isStarted &&
+        !st?.isPaused &&
+        !st?.isStageCleared
       ) {
         this.tryLockPointer();
       }
@@ -703,7 +739,8 @@ export class HUDController {
 
     document.addEventListener('mousemove', (e) => {
       if (!this.isPointerLocked) return;
-      if (this.stageRef?.isPaused || !this.stageRef?.isStarted) return;
+      const st = this.bridge?.getActiveStage();
+      if (!st?.isStarted || st.isPaused) return;
       this.cam.addSwipeDelta(e.movementX, e.movementY);
     });
 
@@ -727,7 +764,6 @@ export class HUDController {
     window.addEventListener('pointerup', endLook);
     window.addEventListener('pointercancel', endLook);
 
-    // Virtual Joystick
     const joyKnob = document.getElementById('joystick-knob')!;
     const maxRadius = 46;
 

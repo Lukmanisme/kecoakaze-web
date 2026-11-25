@@ -63,9 +63,9 @@ export function buildKitchenLevel(scene: THREE.Scene): KitchenLevelData {
   scene.background = new THREE.Color(Palette.SkyHorizon);
   scene.fog = new THREE.Fog(Palette.SkyHorizon, 48, 125);
 
-  // Lighting: bright, cozy Indonesian tropical kitchen
+  // Lighting: bright, cozy Indonesian tropical kitchen (attached to root so stage switching toggles lights)
   const hemi = new THREE.HemisphereLight(0xf6fbf7, 0x8d877a, 1.05);
-  scene.add(hemi);
+  root.add(hemi);
 
   const dirLight = new THREE.DirectionalLight(0xfff4de, 1.45);
   dirLight.position.set(16, 26, -14);
@@ -79,12 +79,12 @@ export function buildKitchenLevel(scene: THREE.Scene): KitchenLevelData {
   dirLight.shadow.camera.top = d;
   dirLight.shadow.camera.bottom = -d;
   dirLight.shadow.bias = -0.001;
-  scene.add(dirLight);
+  root.add(dirLight);
 
   // Warm bulb point light over dining table
   const diningLight = new THREE.PointLight(0xffe1a6, 0.9, 32, 1.2);
   diningLight.position.set(1.6 * S, (ROOM_H - 0.45) * S, -0.4 * S);
-  scene.add(diningLight);
+  root.add(diningLight);
 
   const ctx: PropBuildContext = { walkables: [], obstacles: [] };
   const mats = createKitchenMaterials();
