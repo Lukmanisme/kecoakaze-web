@@ -260,7 +260,7 @@ export class IbuBossController {
       this.rig.root.position.x += Math.sin(time * 30) * 0.06;
       this.visionConeMesh.visible = false;
       this.broomTelegraphMesh.visible = false;
-      this.rig.updateAnimation(dt, time, false, this.bossState, this.habit);
+      this.rig.updateAnimation(dt, time, 0, this.bossState, this.habit);
       return;
     }
 
@@ -268,7 +268,7 @@ export class IbuBossController {
       this.rig.root.position.x += Math.sin(time * 26) * 0.08;
       this.visionConeMesh.visible = false;
       this.broomTelegraphMesh.visible = false;
-      this.rig.updateAnimation(dt, time, false, this.bossState, this.habit);
+      this.rig.updateAnimation(dt, time, 0, this.bossState, this.habit);
       return;
     }
 
@@ -284,7 +284,7 @@ export class IbuBossController {
         this.setBossState('RoutineIdle');
         this.advanceRoutineSequence();
       }
-      this.rig.updateAnimation(dt, time, false, this.bossState, this.habit);
+      this.rig.updateAnimation(dt, time, 0, this.bossState, this.habit);
       return;
     }
 
