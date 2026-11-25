@@ -146,13 +146,16 @@ export interface HudSnapshot {
   stageId: StageId;
   chapterLabel: string;
   objectiveTitle: string;
+  shortObjectiveTitle: string;
   objectiveHint: string;
   targetPosition: THREE.Vector3 | null;
   targetMarkerText: string;
+  targetIndexLabel: string;
   activeHidingSpot: HidingSpot | null;
   gauge: number;
   stars: [boolean, boolean, boolean];
   threatStatus: string;
+  shortThreatBadge: string;
   threatColor: string;
   detection: number;
   isWindingUp: boolean;

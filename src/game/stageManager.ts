@@ -122,8 +122,8 @@ export class KitchenStageManager implements StageController {
     }
 
     this.callbacks.onStoryMessage(
-      'BAB 01 / DAPUR HURU-HARA\nKoko lapar. Ibu hendak bersih-bersih. Cari makan, buat pengalihan, dan bertahan hidup!',
-      11
+      'BAB 01 / DAPUR HURU-HARA — Sabotase 3 target & sembunyi!',
+      2.5
     );
   }
 
@@ -367,6 +367,7 @@ export class KitchenStageManager implements StageController {
     const target = this.getCurrentObjectiveProp();
     const discoveredCount = [0, 1, 2].filter((i) => this.stars[i]).length;
     const titles = ['01 / CURI CEMILAN', '02 / SABOTASE SUP', '03 / PESTA DI MEJA'];
+    const shortNames = ['Curi Sayur', 'Sabotase Sup', 'Meja Makan'];
     const hints = [
       'Dekati bahan sayur di Meja Dapur. Tahan AKSI (E/F) untuk makan.',
       'Tunggu Ibu menjauh dari kompor. Dekati wajan/panci, tahan AKSI (E/F).',
@@ -374,44 +375,54 @@ export class KitchenStageManager implements StageController {
     ];
 
     let objectiveTitle = 'DAPUR BERHASIL DILEWATI';
+    let shortObjectiveTitle = 'Selesai (3/3)';
     let objectiveHint = 'Koko selamat. Ibu butuh waktu menenangkan diri!';
     if (!this.isStageCleared && !this.isFinaleActive && target) {
       objectiveTitle = `${titles[target.type]}   ${discoveredCount}/3`;
+      shortObjectiveTitle = `0${target.type + 1} · ${shortNames[target.type]} (${discoveredCount}/3)`;
       objectiveHint = target.isRuined
         ? 'Keisengan siap! Menjauh & tunggu Ibu menemukannya.'
         : hints[target.type];
     } else if (this.isFinaleActive) {
       objectiveTitle = 'FINALE / DAPUR HURU-HARA';
+      shortObjectiveTitle = 'FINALE · Kabur!';
     }
 
     let threatStatus = 'IBU SIBUK / JAGA JARAK';
+    let shortThreatBadge = 'IBU: SIBUK';
     let threatColor = '#59e0ba';
     switch (this.ibu.bossState) {
       case 'PanicDefeated':
         threatStatus = 'IBU MENYERAH / KOKO SELAMAT';
+        shortThreatBadge = 'IBU: MENYERAH';
         break;
       case 'Mengamuk':
         threatStatus = 'FINALE / DAPUR HURU-HARA';
+        shortThreatBadge = 'IBU: AMUK!';
         threatColor = '#ffbf52';
         break;
       case 'MencariKoko':
       case 'MemeriksaSembunyi':
         threatStatus = 'IBU MENCARI / TETAP SEMBUNYI';
+        shortThreatBadge = 'IBU: MENCARI';
         threatColor = '#ffbf52';
         break;
       case 'WindupAttack':
         threatStatus = '⚠ ANCAMAN! SIAP ELAK [Q]!';
+        shortThreatBadge = 'IBU: AWAS [Q]!';
         threatColor = '#ff4433';
         break;
       case 'AngerCombat':
       case 'ShockedFreeze':
       case 'CariSapu':
         threatStatus = 'BAHAYA / PUTUS GARIS PANDANG!';
+        shortThreatBadge = 'IBU: BAHAYA!';
         threatColor = '#ff6e5c';
         break;
       case 'SuspiciousAlert':
       case 'Marah':
         threatStatus = 'IBU WASPADA / CARI CELAH';
+        shortThreatBadge = 'IBU: WASPADA';
         threatColor = '#ffbf52';
         break;
     }
@@ -436,13 +447,16 @@ export class KitchenStageManager implements StageController {
       stageId: 'bab1',
       chapterLabel: 'KECOAKAZE / BAB 01',
       objectiveTitle,
+      shortObjectiveTitle,
       objectiveHint,
       targetPosition: target && !target.isRuined && !this.isFinaleActive && !this.isStageCleared ? target.position : null,
       targetMarkerText: target ? `0${target.type + 1}\n${target.targetName}` : '',
+      targetIndexLabel: target ? `0${target.type + 1}` : '',
       activeHidingSpot: this.activeHidingSpot,
       gauge: this.gauge,
       stars: this.stars,
       threatStatus,
+      shortThreatBadge,
       threatColor,
       detection: this.ibu.detection,
       isWindingUp: this.ibu.isWindingUp,

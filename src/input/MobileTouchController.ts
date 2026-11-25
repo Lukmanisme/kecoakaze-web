@@ -231,11 +231,11 @@ export class MobileTouchController {
       const leftZoneLimit = w * 0.45;
       const topHudClearance = h <= 540 ? 96 : 112;
 
-      // Left Zone (< 45% viewport width, below top HUD cards) => Floating Virtual Joystick
+      // Left Zone (< 45% viewport width, below top HUD cards, clear of slim left SAYAP bar) => Floating Virtual Joystick
       if (e.clientX < leftZoneLimit && e.clientY >= topHudClearance && this.joystickPointerId === null) {
         this.joystickPointerId = e.pointerId;
         const pad = 56;
-        this.joystickCenterX = Math.max(pad, Math.min(leftZoneLimit - pad * 0.65, e.clientX));
+        this.joystickCenterX = Math.max(pad + 18, Math.min(leftZoneLimit - pad * 0.65, e.clientX));
         this.joystickCenterY = Math.max(topHudClearance + pad * 0.4, Math.min(h - pad, e.clientY));
 
         this.floatingJoystick.style.left = `${this.joystickCenterX}px`;

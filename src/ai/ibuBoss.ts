@@ -48,6 +48,8 @@ export class IbuBossController {
   private moveTargetPos = new THREE.Vector3();
   private moveTargetYaw = 0;
   private baseYaw = 0;
+  private desiredBodyYaw = 0;
+  private headLeadTimer = 0;
 
   private habitTimer = 0;
   private habitDuration = 8.5;
@@ -165,6 +167,8 @@ export class IbuBossController {
     this.stationTimer = 0;
     this.stationDuration = 7.5;
     this.baseYaw = 0;
+    this.desiredBodyYaw = 0;
+    this.headLeadTimer = 0;
 
     this.habitTimer = 0;
     this.habitDuration = 9.0;
@@ -204,10 +208,12 @@ export class IbuBossController {
         break;
       case 'SuspiciousAlert':
         this.rig.setExpression('Suspicious');
+        this.rig.triggerStartle();
         this.sound.playVocalReaction('ibu', 'alert', pan, gain);
         break;
       case 'ShockedFreeze':
         this.rig.setExpression('Shocked');
+        this.rig.triggerStartle();
         this.sound.playVocalReaction('ibu', 'alert', pan, Math.min(1, gain * 1.15));
         break;
       case 'WindupAttack':
@@ -222,6 +228,7 @@ export class IbuBossController {
         break;
       case 'Marah':
         this.rig.setExpression('Shocked');
+        this.rig.triggerStartle();
         this.sound.playVocalReaction('ibu', 'angry', pan, gain);
         break;
       case 'MencariKoko':
@@ -246,6 +253,7 @@ export class IbuBossController {
   ): void {
     this.lastKokoPos.copy(kokoPos);
     this.lastCamFwd.copy(camFwd);
+    if (this.headLeadTimer > 0) this.headLeadTimer = Math.max(0, this.headLeadTimer - dt);
     this.updateSandals(dt, kokoPos, isKokoInvincible);
 
     if (this.bossState === 'PanicDefeated') {
@@ -344,24 +352,36 @@ export class IbuBossController {
         break;
     }
 
-    const sweepAngle = this.isBroomSweeping
-      ? Math.sin(this.broomSweepTimer * 10) * 1.15
+    const broomSweepProgress = this.isBroomSweeping
+      ? Math.min(1, this.broomSweepTimer / 0.85)
       : 0;
+    let moveSpeedRatio = 0;
+    if (this.bossState === 'AngerCombat' && !this.isBroomSweeping) {
+      moveSpeedRatio = 1.0;
+    } else if (this.bossState === 'CariSapu') {
+      moveSpeedRatio = 0.85;
+    } else if (this.isMoving || (this.bossState === 'MemeriksaSembunyi' && this.inspectTimer <= 0.01)) {
+      moveSpeedRatio = 0.62;
+    }
+    const headLeadOffset = this.wrapAngle(this.desiredBodyYaw - this.rig.root.rotation.y);
     this.rig.updateAnimation(
       dt,
       time,
-      this.isMoving ||
-        this.bossState === 'CariSapu' ||
-        (this.bossState === 'AngerCombat' && !this.isBroomSweeping),
+      moveSpeedRatio,
       this.bossState,
       this.habit,
-      sweepAngle
+      broomSweepProgress,
+      headLeadOffset,
+      this.windupProgress
     );
   }
 
   private updateStationWork(dt: number): void {
     this.stationTimer += dt;
     this.checkPropDiscovery();
+    if (!this.isMoving && this.habit === 'CookingTaste') {
+      this.smoothYaw(this.baseYaw, dt * 5.5);
+    }
 
     if (this.stationTimer >= this.stationDuration) {
       this.stationTimer = 0;
@@ -436,7 +456,10 @@ export class IbuBossController {
       this.isMoving = false;
       this.currentStation = this.targetStation;
       this.baseYaw = this.moveTargetYaw;
-      this.smoothYaw(this.moveTargetYaw, 1);
+      this.desiredBodyYaw = this.moveTargetYaw;
+    } else {
+      // Smoothly turn body when stationary at station
+      this.smoothYaw(this.desiredBodyYaw, dt * 6);
     }
   }
 
@@ -730,6 +753,7 @@ export class IbuBossController {
 
   private throwSandal(kokoPos: THREE.Vector3): void {
     this.activeDialogue = 'Nih makan sandal Swallow!!';
+    this.rig.triggerSandalThrow();
     const { pan, gain } = this.sound.computeSpatialPanAndGain(
       this.rig.root.position,
       kokoPos,
@@ -832,10 +856,26 @@ export class IbuBossController {
     this.smoothYaw(Math.atan2(dx, dz), factor);
   }
 
-  private smoothYaw(targetYaw: number, factor: number): void {
-    let diff = targetYaw - this.rig.root.rotation.y;
+  private wrapAngle(angle: number): number {
+    let diff = angle;
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
+    return diff;
+  }
+
+  private smoothYaw(targetYaw: number, factor: number): void {
+    const delta = this.wrapAngle(targetYaw - this.desiredBodyYaw);
+    if (Math.abs(delta) > 0.35 && this.headLeadTimer <= 0) {
+      // Head turns ~0.2s ahead of body so Ibu anticipates turns naturally
+      this.headLeadTimer = 0.2;
+    }
+    this.desiredBodyYaw = targetYaw;
+
+    if (this.headLeadTimer > 0) {
+      return;
+    }
+
+    const diff = this.wrapAngle(this.desiredBodyYaw - this.rig.root.rotation.y);
     this.rig.root.rotation.y += diff * Math.min(1, factor);
   }
 }

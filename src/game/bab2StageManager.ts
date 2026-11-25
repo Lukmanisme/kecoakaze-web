@@ -113,8 +113,8 @@ export class GamerRoomStageManager implements StageController {
     }
 
     this.callbacks.onStoryMessage(
-      'BAB 02 / KAMAR SI GAMER\nSi Gamer asyik push rank pakai headset! Sabotase minumannya, putus kabel LAN, lalu teror di depan monitor!',
-      11
+      'BAB 02 / KAMAR SI GAMER — Sabotase minuman, kabel LAN & monitor!',
+      2.5
     );
   }
 
@@ -369,6 +369,7 @@ export class GamerRoomStageManager implements StageController {
       '02 / SABOTASE KONEKSI LAN',
       '03 / TEROR DI LAYAR MONITOR',
     ];
+    const shortNames = ['Minuman', 'Kabel LAN', 'Monitor'];
     const hints = [
       'Merayap ke ujung kiri meja. Tahan AKSI (E/F) di kaleng minuman energi.',
       'Menyelinap ke belakang casing PC kanan. Tahan AKSI (E/F) cabut kabel LAN.',
@@ -376,32 +377,40 @@ export class GamerRoomStageManager implements StageController {
     ];
 
     let objectiveTitle = 'KAMAR SI GAMER SELESAI';
+    let shortObjectiveTitle = 'Selesai (3/3)';
     let objectiveHint = 'Si Gamer kabur ketakutan keluar kamar!';
     if (this.isFinaleActive) {
       objectiveTitle = 'FINALE / GAMER PANIK TOTAL';
+      shortObjectiveTitle = 'FINALE · Sukses!';
     } else if (target) {
       objectiveTitle = `${titles[target.type]}   ${done}/3`;
+      shortObjectiveTitle = `0${target.type + 1} · ${shortNames[target.type]} (${done}/3)`;
       objectiveHint = hints[target.type];
     }
 
     let threatStatus = 'HEADSET ON · FOKUS RANKED';
+    let shortThreatBadge = 'GAMER: FOKUS';
     let threatColor = '#59e0ba';
     switch (this.gamer.state) {
       case 'PANIC_DEFEATED':
         threatStatus = 'SI GAMER KABUR / KOKO MENANG';
+        shortThreatBadge = 'GAMER: KABUR';
         break;
       case 'RELAXED':
         threatStatus = 'RELAXED · SATU HEADSET TERBUKA';
+        shortThreatBadge = 'GAMER: WASPADA';
         threatColor = '#ffbf52';
         break;
       case 'HEADSET_OFF':
         threatStatus = 'HEADSET OFF · SENTER HP AKTIF!';
+        shortThreatBadge = 'GAMER: SENTER!';
         threatColor = '#ff9844';
         break;
       case 'SWAT_ATTACK':
         threatStatus = this.gamer.isTelegraphingSwat
           ? '⚡ RAKET NYAMUK! TEKAN [Q] ELAK!'
           : 'BAHAYA / MENGHINDAR!';
+        shortThreatBadge = this.gamer.isTelegraphingSwat ? 'GAMER: AWAS!' : 'GAMER: BAHAYA!';
         threatColor = '#ff4433';
         break;
     }
@@ -424,13 +433,16 @@ export class GamerRoomStageManager implements StageController {
       stageId: 'bab2',
       chapterLabel: 'KECOAKAZE / BAB 02',
       objectiveTitle,
+      shortObjectiveTitle,
       objectiveHint,
       targetPosition: target && !target.isRuined ? target.position : null,
       targetMarkerText: target ? `0${target.type + 1}\n${target.targetName}` : '',
+      targetIndexLabel: target ? `0${target.type + 1}` : '',
       activeHidingSpot: this.activeHidingSpot,
       gauge: this.gauge,
       stars: this.stars,
       threatStatus,
+      shortThreatBadge,
       threatColor,
       detection: this.gamer.detection,
       isWindingUp: this.gamer.isTelegraphingSwat,

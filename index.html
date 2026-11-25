@@ -23,9 +23,12 @@
         </div>
       </div>
 
-      <!-- World-projected Target Marker & Boss Overhead Bubble -->
+      <!-- World-projected Screen-Edge Directional Chevron & Boss Overhead Bubble -->
       <div id="world-overlays" class="hidden">
-        <div id="target-marker" class="target-marker hidden"></div>
+        <div id="target-marker" class="target-marker hidden">
+          <span id="target-chevron" class="target-chevron">➤</span>
+          <span id="target-label" class="target-label">01</span>
+        </div>
         <div id="ibu-bubble" class="ibu-bubble hidden">
           <div id="ibu-alert-badge" class="ibu-alert-badge hidden">!</div>
           <div id="ibu-dialogue" class="ibu-dialogue"></div>
@@ -42,52 +45,63 @@
         </div>
       </div>
 
-      <!-- Main HUD (Safe Area aware) -->
+      <!-- Main HUD (Minimalist & Zero Character Obstruction) -->
       <div id="hud-layer" class="hud-layer hidden">
-        <div class="hud-top-bar">
-          <!-- Top Left: Objective Card -->
-          <div class="hud-card objective-card">
-            <div id="objective-chapter" class="card-kicker">KECOAKAZE / BAB 01</div>
-            <div id="objective-title" class="objective-title">01 / CURI CEMILAN   0/3</div>
-            <div id="objective-hint" class="objective-hint">
-              Dekati bahan sayur. Tahan AKSI (E/F) saat prompt muncul.
+        <div class="hud-top-stack">
+          <div class="hud-top-bar">
+            <!-- Top Left: Objective Card -->
+            <div class="hud-card objective-card">
+              <div id="objective-chapter" class="card-kicker">KECOAKAZE / BAB 01</div>
+              <div id="objective-title" class="objective-title">01 · Curi Sayur (0/3)</div>
+              <div id="objective-hint" class="objective-hint">
+                Dekati bahan sayur. Tahan AKSI (E/F) saat prompt muncul.
+              </div>
+              <div id="hiding-badge" class="hiding-badge hidden">SEMBUNYI</div>
             </div>
-            <div id="hiding-badge" class="hiding-badge hidden">SEMBUNYI</div>
+
+            <!-- Top Right: Compact Threat Pill + DNA + Controls -->
+            <div class="top-right-group">
+              <div class="hud-card threat-card">
+                <div class="threat-pill-row">
+                  <span id="threat-dot" class="threat-dot"></span>
+                  <span id="threat-status" class="threat-status">IBU: SIBUK</span>
+                </div>
+                <div class="detection-track">
+                  <div id="detection-fill" class="detection-fill"></div>
+                </div>
+                <div id="surface-status" class="surface-status">MERAYAP · LANTAI</div>
+              </div>
+              <div class="top-right-utilities">
+                <span id="dna-hud-badge" class="dna-hud-badge">0 DNA</span>
+                <div class="top-buttons">
+                  <button id="btn-mute" class="icon-btn" title="Suara (M)" type="button">🔊</button>
+                  <button id="btn-touch-toggle" class="icon-btn" title="Toggle Mode Touch / Desktop" type="button">📱</button>
+                  <button id="btn-pause" class="icon-btn" title="Jeda (Esc / P)" type="button">⏸</button>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <!-- Top Center: Terror Momentum & Stars -->
+          <!-- Compact Top Header Bar: MOMENTUM TEROR (max 34px) -->
           <div class="hud-card momentum-card">
-            <div class="momentum-header">
-              <span class="momentum-title">MOMENTUM TEROR</span>
-              <span id="momentum-pct" class="momentum-pct">0%</span>
-            </div>
-            <div class="momentum-stars">
-              <span id="star-1" class="star-icon" title="Bintang 1">★</span>
-              <span id="star-2" class="star-icon" title="Bintang 2">★</span>
-              <span id="star-3" class="star-icon" title="Bintang 3">★</span>
-            </div>
+            <span class="momentum-title">MOMENTUM</span>
             <div class="momentum-track">
               <div id="momentum-fill" class="momentum-fill"></div>
               <div class="threshold-mark" style="left: 30%"></div>
               <div class="threshold-mark" style="left: 60%"></div>
               <div class="threshold-mark" style="left: 90%"></div>
             </div>
+            <div class="momentum-stars">
+              <span id="star-1" class="star-icon" title="Bintang 1">★</span>
+              <span id="star-2" class="star-icon" title="Bintang 2">★</span>
+              <span id="star-3" class="star-icon" title="Bintang 3">★</span>
+            </div>
+            <span id="momentum-pct" class="momentum-pct">0%</span>
           </div>
 
-          <!-- Top Right: Threat Card + Controls -->
-          <div class="top-right-group">
-            <div class="hud-card threat-card">
-              <div id="threat-status" class="threat-status">IBU SIBUK / JAGA JARAK</div>
-              <div class="detection-track">
-                <div id="detection-fill" class="detection-fill"></div>
-              </div>
-              <div id="surface-status" class="surface-status">MERAYAP · LANTAI</div>
-            </div>
-            <div class="top-buttons">
-              <button id="btn-mute" class="icon-btn" title="Suara (M)">🔊</button>
-              <button id="btn-touch-toggle" class="icon-btn" title="Toggle Mode Touch / Desktop">📱</button>
-              <button id="btn-pause" class="icon-btn" title="Jeda (Esc / P)">⏸</button>
-            </div>
+          <!-- Thin Top Toast Intro/Story Banner (auto-fades in 2.5s or on movement) -->
+          <div id="story-card" class="hud-card story-card faded">
+            <div id="story-text" class="story-text"></div>
           </div>
         </div>
 
@@ -115,18 +129,12 @@
           </div>
         </div>
 
-        <!-- Story Radio Card (Bottom Center, non-modal) -->
-        <div id="story-card" class="hud-card story-card">
-          <div id="story-text" class="story-text"></div>
-        </div>
-
-        <!-- Stamina & Surface Bar (Bottom Center) -->
+        <!-- Stamina Bar (Bottom-center on Desktop, Vertical Left Bar on Mobile) -->
         <div class="stamina-pill">
           <span class="stamina-label">SAYAP</span>
           <div class="stamina-track">
             <div id="stamina-fill" class="stamina-fill"></div>
           </div>
-          <span id="dna-hud-badge" class="dna-hud-badge">0 DNA</span>
         </div>
 
         <!-- Desktop Controls Legend -->

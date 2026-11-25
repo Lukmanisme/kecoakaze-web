@@ -29,6 +29,7 @@ export class HUDController {
   private suppressAutoPauseOnUnlock = false;
 
   private storyUntil = 0;
+  private storyShownAt = 0;
   private toastUntil = 0;
   private labReturnTarget: 'start' | 'result' = 'start';
   private settingsReturnTarget: 'start' | 'pause' = 'start';
@@ -53,6 +54,7 @@ export class HUDController {
     document.getElementById('star-3')!,
   ];
   private readonly threatStatus = document.getElementById('threat-status')!;
+  private readonly threatDot = document.getElementById('threat-dot')!;
   private readonly detectionFill = document.getElementById('detection-fill')!;
   private readonly surfaceStatus = document.getElementById('surface-status')!;
   private readonly staminaFill = document.getElementById('stamina-fill')!;
@@ -61,6 +63,8 @@ export class HUDController {
   private readonly storyText = document.getElementById('story-text')!;
   private readonly toastBanner = document.getElementById('toast-banner')!;
   private readonly targetMarker = document.getElementById('target-marker')!;
+  private readonly targetChevron = document.getElementById('target-chevron')!;
+  private readonly targetLabel = document.getElementById('target-label')!;
   private readonly ibuBubble = document.getElementById('ibu-bubble')!;
   private readonly ibuAlertBadge = document.getElementById('ibu-alert-badge')!;
   private readonly ibuDialogue = document.getElementById('ibu-dialogue')!;
@@ -165,6 +169,7 @@ export class HUDController {
 
   private applyTouchModeUI(): void {
     this.touchCtrl.setTouchMode(this.touchMode);
+    this.hudLayer.classList.toggle('touch-active', this.touchMode);
     this.desktopHints.classList.toggle('hidden', this.touchMode);
     this.btnTouchToggle.classList.toggle('active', this.touchMode);
     this.btnPauseTouch.textContent = `📱 MODE TOUCH: ${this.touchMode ? 'ON' : 'OFF'}`;
@@ -611,8 +616,10 @@ export class HUDController {
   }
 
   public showStory(text: string, duration: number): void {
+    const now = performance.now() * 0.001;
     this.storyText.textContent = text;
-    this.storyUntil = performance.now() * 0.001 + duration;
+    this.storyShownAt = now;
+    this.storyUntil = now + Math.min(3.5, duration);
     this.storyCard.classList.remove('faded');
   }
 
@@ -723,8 +730,9 @@ export class HUDController {
 
     this.touchCtrl.updateInertia(dt, this.isPointerLocked);
 
+    const isNarrow = window.innerWidth <= 768;
     this.objectiveChapter.textContent = snap.chapterLabel;
-    this.objectiveTitle.textContent = snap.objectiveTitle;
+    this.objectiveTitle.textContent = isNarrow ? snap.shortObjectiveTitle : snap.objectiveTitle;
     this.objectiveHint.textContent = snap.objectiveHint;
 
     if (snap.activeHidingSpot) {
@@ -746,13 +754,21 @@ export class HUDController {
     }
 
     this.detectionFill.style.width = `${Math.round(snap.detection)}%`;
-    this.threatStatus.textContent = snap.threatStatus;
+    this.threatStatus.textContent = isNarrow ? snap.shortThreatBadge : snap.threatStatus;
     this.threatStatus.style.color = snap.threatColor;
+    this.threatDot.style.background = snap.threatColor;
     this.detectionFill.style.background = snap.threatColor;
 
     this.surfaceStatus.textContent = koko.getSurfaceLabel() + snap.extraStatusTag;
     const staminaRatio = koko.stamina / Math.max(1, koko.maxStamina);
-    this.staminaFill.style.width = `${Math.round(staminaRatio * 100)}%`;
+    const staminaPctStr = `${Math.round(staminaRatio * 100)}%`;
+    if (this.touchMode) {
+      this.staminaFill.style.width = '100%';
+      this.staminaFill.style.height = staminaPctStr;
+    } else {
+      this.staminaFill.style.height = '100%';
+      this.staminaFill.style.width = staminaPctStr;
+    }
     this.dnaHudBadge.textContent = `${totalDna} DNA`;
     if (isPaused) this.refreshQualityUI();
 
@@ -823,49 +839,87 @@ export class HUDController {
       this.threatIndicator.classList.add('hidden');
     }
 
-    if (time > this.storyUntil) {
+    const playerMoved =
+      Math.hypot(input.moveX, input.moveY) > 0.15 || input.flyHeld || input.actionHeld;
+    if (time > this.storyUntil || (playerMoved && time - this.storyShownAt > 0.35)) {
       this.storyCard.classList.add('faded');
     }
     if (time > this.toastUntil) {
       this.toastBanner.classList.add('hidden');
     }
 
-    this.updateWorldMarker(snap.targetPosition, snap.targetMarkerText);
+    this.updateWorldMarker(snap.targetPosition, snap.targetIndexLabel);
     this.updateBossBubble(snap);
   }
 
-  private updateWorldMarker(pos: THREE.Vector3 | null, label: string): void {
+  private updateWorldMarker(pos: THREE.Vector3 | null, indexLabel: string): void {
     if (!pos) {
       this.targetMarker.classList.add('hidden');
       return;
     }
     this.targetMarker.classList.remove('hidden');
-    this.projVec.copy(pos).add(new THREE.Vector3(0, 1.4, 0));
+    this.projVec.copy(pos).add(new THREE.Vector3(0, 1.35, 0));
     this.projVec.project(this.cam.camera);
 
     const w = window.innerWidth;
     const h = window.innerHeight;
-    let x = (this.projVec.x * 0.5 + 0.5) * w;
-    let y = (-this.projVec.y * 0.5 + 0.5) * h;
+    const rawX = (this.projVec.x * 0.5 + 0.5) * w;
+    const rawY = (-this.projVec.y * 0.5 + 0.5) * h;
     const behind = this.projVec.z > 1;
-    this.targetMarker.textContent = `${behind ? 'DI BELAKANG / ' : ''}${label}`;
 
-    const pad = 16;
-    const markerW = Math.min(w - pad * 2, Math.max(96, this.targetMarker.offsetWidth || 168));
-    const markerH = Math.max(36, this.targetMarker.offsetHeight || 52);
-    const halfW = markerW * 0.5;
-    const topSafe = (w <= 760 ? 116 : 124) + markerH;
-    const bottomSafe = h - (w <= 760 ? 228 : 134);
+    const topSafe = w <= 768 ? 106 : 114;
+    const bottomSafe = h - (this.touchMode ? 176 : 64);
+    const padX = this.touchMode ? 48 : 34;
 
-    if (behind) {
-      x = w - x;
-      y = bottomSafe;
+    const onScreen =
+      !behind &&
+      rawX >= padX &&
+      rawX <= w - padX &&
+      rawY >= topSafe &&
+      rawY <= bottomSafe;
+
+    if (onScreen) {
+      this.targetLabel.textContent = indexLabel;
+      this.targetChevron.style.transform = 'rotate(90deg)';
+      this.targetMarker.style.left = `${rawX}px`;
+      this.targetMarker.style.top = `${rawY}px`;
+      return;
     }
-    x = THREE.MathUtils.clamp(x, pad + halfW, Math.max(pad + halfW, w - pad - halfW));
-    y = THREE.MathUtils.clamp(y, topSafe, Math.max(topSafe, bottomSafe));
 
-    this.targetMarker.style.left = `${x}px`;
-    this.targetMarker.style.top = `${y}px`;
+    // Off-screen or behind: clamp neatly to safe viewport edges and orient chevron toward target
+    const cx = w * 0.5;
+    const cy = h * 0.5;
+    let dx = rawX - cx;
+    let dy = rawY - cy;
+    if (behind) {
+      dx = -dx;
+      dy = Math.abs(dy) < 40 ? 120 : -dy;
+    }
+
+    const angleRad = Math.atan2(dy, dx);
+    const angleDeg = THREE.MathUtils.radToDeg(angleRad);
+    this.targetChevron.style.transform = `rotate(${angleDeg}deg)`;
+    this.targetLabel.textContent = behind ? `${indexLabel} · BLK` : indexLabel;
+
+    const halfW = Math.max(20, (this.targetMarker.offsetWidth || 64) * 0.5);
+    const halfH = Math.max(14, (this.targetMarker.offsetHeight || 28) * 0.5);
+    const minX = padX + halfW;
+    const maxX = Math.max(minX, w - padX - halfW);
+    const minY = topSafe + halfH;
+    const maxY = Math.max(minY, bottomSafe - halfH);
+
+    // Intersect ray from center with safe bounding box
+    const cos = Math.cos(angleRad);
+    const sin = Math.sin(angleRad);
+    const tx = Math.abs(cos) > 0.001 ? ((cos > 0 ? maxX : minX) - cx) / cos : 1e6;
+    const ty = Math.abs(sin) > 0.001 ? ((sin > 0 ? maxY : minY) - cy) / sin : 1e6;
+    const t = Math.min(Math.abs(tx), Math.abs(ty));
+
+    const edgeX = THREE.MathUtils.clamp(cx + cos * t, minX, maxX);
+    const edgeY = THREE.MathUtils.clamp(cy + sin * t, minY, maxY);
+
+    this.targetMarker.style.left = `${edgeX}px`;
+    this.targetMarker.style.top = `${edgeY}px`;
   }
 
   private updateBossBubble(snap: HudSnapshot): void {
