@@ -3,7 +3,7 @@ import * as THREE from 'three';
 export const WORLD_SCALE = 6.5; // 1 meter nyata = 6.5 unit game
 export const ROOM_W = 8.0;
 export const ROOM_D = 6.5;
-export const ROOM_H = 2.7;
+export const ROOM_H = 3.2;
 export const WALL_T = 0.15;
 
 export type StageId = 'bab1' | 'bab2';

@@ -68,8 +68,8 @@ export class KitchenStageManager implements StageController {
     this.level.root.visible = active;
     this.ibu.rig.root.visible = active;
     if (active) {
-      this.scene.background = new THREE.Color(0xa3e2d3);
-      this.scene.fog = new THREE.Fog(0xa3e2d3, 48, 125);
+      this.scene.background = new THREE.Color(0x282520);
+      this.scene.fog = new THREE.Fog(0x282520, 48, 110);
       this.koko.configureLevel({
         walkables: this.level.walkables,
         soapyZone: this.level.soapyZone,

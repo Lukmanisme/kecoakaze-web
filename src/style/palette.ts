@@ -94,7 +94,8 @@ export function createTileTexture(
   groutColor: string,
   checker: boolean,
   repeatX = 1,
-  repeatY = 1
+  repeatY = 1,
+  groutWidth = 4
 ): THREE.CanvasTexture {
   const size = 256;
   const canvas = document.createElement('canvas');
@@ -111,7 +112,7 @@ export function createTileTexture(
   }
 
   ctx.strokeStyle = groutColor;
-  ctx.lineWidth = 3;
+  ctx.lineWidth = groutWidth;
   for (let i = 0; i <= gridCount; i++) {
     const p = i * cell;
     ctx.beginPath();

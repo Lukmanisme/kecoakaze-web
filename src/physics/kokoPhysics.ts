@@ -23,7 +23,9 @@ export interface LevelPhysicsConfig {
 
 export class KokoController {
   public state: KokoState = 'Crawling';
+  // Physics collider center (separated from visual root so feet stay flush at hit.point + n * 0.004)
   public readonly position = new THREE.Vector3();
+  public readonly visualPosition = new THREE.Vector3();
   public readonly velocity = new THREE.Vector3();
   public readonly quaternion = new THREE.Quaternion();
   public surfaceNormal = new THREE.Vector3(0, 1, 0);
@@ -66,8 +68,20 @@ export class KokoController {
   private readonly flyForwardSpeed = 9.0;
   private readonly flyAscendSpeed = 6.2;
   private readonly hoverGravity = 2.4;
-  private readonly probeDist = 0.52;
-  private readonly probeOffset = 0.16;
+
+  // Collider vs visual surface separation
+  private readonly colliderRadius = 0.08;
+  private readonly visualSurfaceOffset = 0.004;
+  private readonly probeDist = 0.54;
+  private readonly probeOffset = 0.22;
+
+  // Reusable scratch vectors (zero per-frame GC)
+  private readonly tmpOrigin = new THREE.Vector3();
+  private readonly tmpDir = new THREE.Vector3();
+  private readonly tmpTargetVisual = new THREE.Vector3();
+  private readonly tmpMatrix3 = new THREE.Matrix3();
+  private readonly tmpWorldNormal = new THREE.Vector3();
+  private readonly identityQuat = new THREE.Quaternion();
 
   constructor(
     public readonly rig: KokoRig,
@@ -125,7 +139,25 @@ export class KokoController {
     this.externalWindAccel.set(0, 0, 0);
     this.zeroStaminaDrainThisFrame = false;
     this.isRidingFanWind = false;
-    this.syncRigTransform();
+
+    const floorHit = this.raycastWalkables(
+      this.tmpOrigin.set(pos.x, pos.y + 0.4, pos.z),
+      this.tmpDir.set(0, -1, 0),
+      1.5
+    );
+    if (floorHit) {
+      const n = this.getWorldNormal(floorHit);
+      this.surfaceNormal.copy(n);
+      this.targetSurfaceNormal.copy(n);
+      this.position.copy(floorHit.point).addScaledVector(n, this.colliderRadius);
+      this.visualPosition.copy(floorHit.point).addScaledVector(n, this.visualSurfaceOffset);
+    } else {
+      this.position.y = this.colliderRadius;
+      this.visualPosition.set(pos.x, this.visualSurfaceOffset, pos.z);
+    }
+
+    this.syncRigTransform(1);
+    this.updateBlobShadow();
   }
 
   public applyWindEffect(accel: THREE.Vector3, zeroStaminaDrain: boolean): void {
@@ -190,8 +222,8 @@ export class KokoController {
       this.velocity.y -= 16 * dt;
       this.position.addScaledVector(this.velocity, dt);
       this.clampRoomBounds();
-      if (this.position.y <= 0.08) {
-        this.position.y = 0.08;
+      if (this.position.y <= this.colliderRadius) {
+        this.position.y = this.colliderRadius;
         this.velocity.multiplyScalar(0.5);
       }
       if (this.stunTimer <= 0) {
@@ -200,7 +232,8 @@ export class KokoController {
         this.targetSurfaceNormal.set(0, 1, 0);
       }
       this.rig.updateAnimation(dt, time, this.state, 0);
-      this.syncRigTransform();
+      this.syncRigTransform(dt);
+      this.updateBlobShadow();
       this.externalWindAccel.set(0, 0, 0);
       this.zeroStaminaDrainThisFrame = false;
       this.isRidingFanWind = false;
@@ -224,6 +257,7 @@ export class KokoController {
     }
 
     this.clampRoomBounds();
+    this.syncRigTransform(dt);
     this.updateBlobShadow();
 
     const planarVel = this.velocity
@@ -231,7 +265,6 @@ export class KokoController {
       .projectOnPlane(this.surfaceNormal)
       .length();
     this.rig.updateAnimation(dt, time, this.state, planarVel);
-    this.syncRigTransform();
 
     // Reset per-frame wind impulses (reapplied before next step if inside cone)
     this.externalWindAccel.set(0, 0, 0);
@@ -262,7 +295,7 @@ export class KokoController {
     camFwd.normalize();
     const camRight = new THREE.Vector3().crossVectors(camFwd, this.surfaceNormal).normalize();
 
-    let dodgeDir = new THREE.Vector3();
+    const dodgeDir = new THREE.Vector3();
     if (Math.abs(input.moveX) > 0.1 || Math.abs(input.moveY) > 0.1) {
       dodgeDir.addScaledVector(camRight, input.moveX).addScaledVector(camFwd, input.moveY);
     } else {
@@ -273,13 +306,13 @@ export class KokoController {
 
     this.velocity.addScaledVector(dodgeDir, this.dodgeImpulse);
     const burstHit = this.raycastWalkables(
-      this.position.clone().addScaledVector(this.surfaceNormal, 0.15),
+      this.position.clone().addScaledVector(this.surfaceNormal, 0.12),
       dodgeDir,
       this.dodgeImpulse * 0.14
     );
-    const safeBurst = burstHit ? Math.max(0, burstHit.distance - 0.25) : this.dodgeImpulse * 0.11;
+    const safeBurst = burstHit ? Math.max(0, burstHit.distance - 0.2) : this.dodgeImpulse * 0.11;
     this.position.addScaledVector(dodgeDir, safeBurst);
-    this.vfx.spawnDodgeTrail(this.position, dodgeDir);
+    this.vfx.spawnDodgeTrail(this.visualPosition, dodgeDir);
     this.sound.playDodgeWhoosh();
   }
 
@@ -291,7 +324,7 @@ export class KokoController {
   ): void {
     const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(this.quaternion);
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.quaternion);
-    const span = 0.24;
+    const span = 0.16;
 
     const origins = [
       this.position.clone(),
@@ -310,9 +343,12 @@ export class KokoController {
       const rayOrigin = orig.clone().addScaledVector(this.surfaceNormal, this.probeOffset);
       const hit = this.raycastWalkables(rayOrigin, downDir, this.probeDist + this.probeOffset);
       if (hit) {
-        avgNormal.add(this.getWorldNormal(hit));
-        hitCount++;
-        if (hit.distance < closestDist) closestDist = hit.distance;
+        const hitN = this.getWorldNormal(hit);
+        if (hitN.dot(this.surfaceNormal) > 0.35) {
+          avgNormal.add(hitN);
+          hitCount++;
+          if (hit.distance < closestDist) closestDist = hit.distance;
+        }
       }
     }
 
@@ -339,24 +375,25 @@ export class KokoController {
       moveDir.normalize();
     }
 
+    // Convex edge wrapping (e.g., tabletop down over edge / chair edge / stove edge)
     if (hitCount === 0 && this.isGrounded && moveDir.lengthSq() > 0.001) {
       const wrapOrigin = this.position
         .clone()
-        .addScaledVector(moveDir, 0.14)
-        .addScaledVector(this.surfaceNormal, -0.22);
+        .addScaledVector(moveDir, 0.1)
+        .addScaledVector(this.surfaceNormal, -0.18);
       const wrapBackDir = moveDir.clone().negate();
-      const wrapHit = this.raycastWalkables(wrapOrigin, wrapBackDir, 0.48);
+      const wrapHit = this.raycastWalkables(wrapOrigin, wrapBackDir, 0.44);
       if (wrapHit) {
         const wrapNormal = this.getWorldNormal(wrapHit);
         if (wrapNormal.dot(this.surfaceNormal) < 0.75) {
           this.targetSurfaceNormal.copy(wrapNormal);
           this.surfaceNormal.lerp(this.targetSurfaceNormal, Math.min(1, dt * 18)).normalize();
           this.position.lerp(
-            wrapHit.point.clone().addScaledVector(wrapNormal, 0.025),
-            Math.min(1, dt * 16)
+            wrapHit.point.clone().addScaledVector(wrapNormal, this.colliderRadius),
+            Math.min(1, dt * 18)
           );
           hitCount = 1;
-          closestDist = this.probeOffset + 0.02;
+          closestDist = this.probeOffset + this.colliderRadius;
         }
       }
     }
@@ -366,11 +403,12 @@ export class KokoController {
       if (avgNormal.lengthSq() > 0.001) {
         this.targetSurfaceNormal.copy(avgNormal.normalize());
       }
-      this.surfaceNormal.lerp(this.targetSurfaceNormal, Math.min(1, dt * 14)).normalize();
+      this.surfaceNormal.lerp(this.targetSurfaceNormal, Math.min(1, dt * 15)).normalize();
 
+      // Keep collider center consistently separated by colliderRadius from hit surface
       const surfaceOffset = closestDist - this.probeOffset;
-      if (Math.abs(surfaceOffset) < 0.35) {
-        this.position.addScaledVector(this.surfaceNormal, -(surfaceOffset - 0.02));
+      if (Math.abs(surfaceOffset) < 0.36) {
+        this.position.addScaledVector(this.surfaceNormal, -(surfaceOffset - this.colliderRadius));
       }
     } else {
       this.isGrounded = false;
@@ -394,15 +432,16 @@ export class KokoController {
         const n = this.getWorldNormal(fallHit);
         this.surfaceNormal.copy(n);
         this.targetSurfaceNormal.copy(n);
-        this.position.copy(fallHit.point).addScaledVector(this.surfaceNormal, 0.02);
+        this.position.copy(fallHit.point).addScaledVector(this.surfaceNormal, this.colliderRadius);
         this.velocity.set(0, 0, 0);
       }
       return;
     }
 
+    // Concave corner climb (floor -> wall, floor -> table leg, wall -> ceiling)
     if (inputLen > 0.05 && moveDir.lengthSq() > 0.001) {
-      const probeStart = this.position.clone().addScaledVector(this.surfaceNormal, 0.24);
-      const wallReach = 0.48 + this.walkSpeed * dt;
+      const probeStart = this.position.clone().addScaledVector(this.surfaceNormal, 0.14);
+      const wallReach = 0.28 + this.walkSpeed * dt;
       const wallHit = this.raycastWalkables(probeStart, moveDir, wallReach);
       if (wallHit) {
         const wallNormal = this.getWorldNormal(wallHit);
@@ -412,7 +451,7 @@ export class KokoController {
           this.surfaceNormal.lerp(wallNormal, Math.min(1, dt * 18)).normalize();
           moveDir.applyQuaternion(rot).normalize();
           this.position.lerp(
-            wallHit.point.clone().addScaledVector(wallNormal, 0.03),
+            wallHit.point.clone().addScaledVector(wallNormal, this.colliderRadius),
             Math.min(1, dt * 18)
           );
         }
@@ -437,6 +476,7 @@ export class KokoController {
 
     this.position.addScaledVector(this.velocity, dt);
 
+    // Align Koko's local +Y axis smoothly with surfaceNormal via quaternion.slerp
     const upVec = this.surfaceNormal.clone().normalize();
     let fwdVec =
       inputLen > 0.05 && moveDir.lengthSq() > 0.001
@@ -452,7 +492,7 @@ export class KokoController {
     const rightVec = new THREE.Vector3().crossVectors(upVec, fwdVec).normalize();
     const basis = new THREE.Matrix4().makeBasis(rightVec, upVec, fwdVec);
     const targetQ = new THREE.Quaternion().setFromRotationMatrix(basis);
-    this.quaternion.slerp(targetQ, Math.min(1, dt * 12));
+    this.quaternion.slerp(targetQ, Math.min(1, dt * 14));
 
     this.sound.updateWingSound(false, false, 0);
     const surfaceType: CrawlSurfaceType =
@@ -530,7 +570,7 @@ export class KokoController {
     const speed = this.velocity.length();
     if (speed > 0.05) {
       const moveDir = this.velocity.clone().normalize();
-      const hit = this.raycastWalkables(this.position, moveDir, speed * dt + 0.32);
+      const hit = this.raycastWalkables(this.position, moveDir, speed * dt + 0.3);
       if (hit) {
         const normal = this.getWorldNormal(hit);
         if (!ascending && this.flightTimer > 0.3) {
@@ -571,39 +611,57 @@ export class KokoController {
     this.isGrounded = true;
     this.surfaceNormal.copy(normal).normalize();
     this.targetSurfaceNormal.copy(this.surfaceNormal);
-    this.position.copy(point).addScaledVector(this.surfaceNormal, 0.02);
+    this.position.copy(point).addScaledVector(this.surfaceNormal, this.colliderRadius);
+    this.visualPosition.copy(point).addScaledVector(this.surfaceNormal, this.visualSurfaceOffset);
     this.velocity.set(0, 0, 0);
     this.sound.updateWingSound(false, false, 0);
     this.sound.playLanding();
   }
 
   private clampRoomBounds(): void {
-    const maxX = this.bounds.halfW - 0.35;
-    const maxZ = this.bounds.halfD - 0.35;
-    const maxY = this.bounds.height - 0.25;
+    // Allow closer proximity when crawling so Koko adheres cleanly to interior walls and ceiling
+    const wallPad = this.state === 'Crawling' && this.isGrounded ? 0.06 : 0.16;
+    const maxX = this.bounds.halfW - wallPad;
+    const maxZ = this.bounds.halfD - wallPad;
+    const maxY = this.bounds.height - wallPad;
 
     if (this.position.x < -maxX) this.position.x = -maxX;
     if (this.position.x > maxX) this.position.x = maxX;
     if (this.position.z < -maxZ) this.position.z = -maxZ;
     if (this.position.z > maxZ) this.position.z = maxZ;
-    if (this.position.y < 0.02) {
-      this.position.y = 0.02;
+    if (this.position.y < this.colliderRadius) {
+      this.position.y = this.colliderRadius;
       if (this.state === 'Flying' || this.state === 'Gliding') {
-        this.landOnSurface(new THREE.Vector3(this.position.x, 0, this.position.z), new THREE.Vector3(0, 1, 0));
+        this.landOnSurface(
+          new THREE.Vector3(this.position.x, 0, this.position.z),
+          new THREE.Vector3(0, 1, 0)
+        );
       }
     }
     if (this.position.y > maxY) this.position.y = maxY;
   }
 
   private updateBlobShadow(): void {
+    if (this.state === 'Crawling' && this.isGrounded) {
+      this.rig.blobShadow.visible = true;
+      this.rig.blobShadow.position
+        .copy(this.visualPosition)
+        .addScaledVector(this.surfaceNormal, 0.008);
+      this.rig.blobShadow.quaternion.copy(this.quaternion);
+      this.rig.blobShadow.scale.setScalar(1);
+      (this.rig.blobShadow.material as THREE.MeshBasicMaterial).opacity = 0.72;
+      return;
+    }
+
     const hit = this.raycastWalkables(
-      this.position.clone().add(new THREE.Vector3(0, 0.1, 0)),
-      new THREE.Vector3(0, -1, 0),
-      18
+      this.tmpOrigin.copy(this.position).add(new THREE.Vector3(0, 0.1, 0)),
+      this.tmpDir.set(0, -1, 0),
+      24
     );
     if (hit) {
       this.rig.blobShadow.visible = true;
       this.rig.blobShadow.position.copy(hit.point).add(new THREE.Vector3(0, 0.015, 0));
+      this.rig.blobShadow.quaternion.copy(this.identityQuat);
       const height = Math.max(0, this.position.y - hit.point.y);
       const scale = Math.max(0.4, 1 - height * 0.06);
       this.rig.blobShadow.scale.setScalar(scale);
@@ -630,10 +688,8 @@ export class KokoController {
 
   private getWorldNormal(hit: THREE.Intersection): THREE.Vector3 {
     if (!hit.face) return new THREE.Vector3(0, 1, 0);
-    return hit.face.normal
-      .clone()
-      .transformDirection(hit.object.matrixWorld)
-      .normalize();
+    this.tmpMatrix3.getNormalMatrix(hit.object.matrixWorld);
+    return this.tmpWorldNormal.copy(hit.face.normal).applyMatrix3(this.tmpMatrix3).normalize();
   }
 
   private containsPoint(zone: AABBZone, p: THREE.Vector3): boolean {
@@ -647,8 +703,35 @@ export class KokoController {
     );
   }
 
-  private syncRigTransform(): void {
-    this.rig.root.position.copy(this.position);
+  private syncRigTransform(dt: number): void {
+    if (this.state === 'Crawling' && this.isGrounded) {
+      // Perpendicular surface-lock raycast: place visual feet flush at hit.point + surfaceNormal * 0.004
+      this.tmpOrigin.copy(this.position).addScaledVector(this.surfaceNormal, 0.26);
+      this.tmpDir.copy(this.surfaceNormal).negate();
+      const snapHit = this.raycastWalkables(this.tmpOrigin, this.tmpDir, 0.85);
+      if (snapHit) {
+        const hitN = this.getWorldNormal(snapHit);
+        if (hitN.dot(this.surfaceNormal) > 0.35) {
+          this.tmpTargetVisual
+            .copy(snapHit.point)
+            .addScaledVector(this.surfaceNormal, this.visualSurfaceOffset);
+          const distSq = this.visualPosition.distanceToSquared(this.tmpTargetVisual);
+          if (distSq > 0.04) {
+            this.visualPosition.lerp(this.tmpTargetVisual, Math.min(1, dt * 24));
+          } else {
+            this.visualPosition.copy(this.tmpTargetVisual);
+          }
+        } else {
+          this.visualPosition.copy(this.position).addScaledVector(this.surfaceNormal, -this.colliderRadius + this.visualSurfaceOffset);
+        }
+      } else {
+        this.visualPosition.copy(this.position).addScaledVector(this.surfaceNormal, -this.colliderRadius + this.visualSurfaceOffset);
+      }
+    } else {
+      this.visualPosition.lerp(this.position, Math.min(1, dt * 20));
+    }
+
+    this.rig.root.position.copy(this.visualPosition);
     this.rig.root.quaternion.copy(this.quaternion);
   }
 }

@@ -643,16 +643,24 @@ export class HUDController {
     let x = (this.projVec.x * 0.5 + 0.5) * w;
     let y = (-this.projVec.y * 0.5 + 0.5) * h;
     const behind = this.projVec.z > 1;
+    this.targetMarker.textContent = `${behind ? 'DI BELAKANG / ' : ''}${label}`;
+
+    const pad = 16;
+    const markerW = Math.min(w - pad * 2, Math.max(96, this.targetMarker.offsetWidth || 168));
+    const markerH = Math.max(36, this.targetMarker.offsetHeight || 52);
+    const halfW = markerW * 0.5;
+    const topSafe = (w <= 760 ? 116 : 124) + markerH;
+    const bottomSafe = h - (w <= 760 ? 228 : 134);
+
     if (behind) {
       x = w - x;
-      y = h - 90;
+      y = bottomSafe;
     }
-    x = THREE.MathUtils.clamp(x, 70, w - 70);
-    y = THREE.MathUtils.clamp(y, 95, h - 110);
+    x = THREE.MathUtils.clamp(x, pad + halfW, Math.max(pad + halfW, w - pad - halfW));
+    y = THREE.MathUtils.clamp(y, topSafe, Math.max(topSafe, bottomSafe));
 
     this.targetMarker.style.left = `${x}px`;
     this.targetMarker.style.top = `${y}px`;
-    this.targetMarker.textContent = `${behind ? 'DI BELAKANG / ' : ''}${label}`;
   }
 
   private updateBossBubble(snap: HudSnapshot): void {
@@ -665,11 +673,6 @@ export class HUDController {
     }
 
     this.ibuBubble.classList.remove('hidden');
-    const x = THREE.MathUtils.clamp((this.projVec.x * 0.5 + 0.5) * window.innerWidth, 110, window.innerWidth - 110);
-    const y = THREE.MathUtils.clamp((-this.projVec.y * 0.5 + 0.5) * window.innerHeight, 90, window.innerHeight - 60);
-    this.ibuBubble.style.left = `${x}px`;
-    this.ibuBubble.style.top = `${y}px`;
-
     this.ibuDialogue.textContent = snap.bossDialogue;
 
     if (snap.bossBadge === '!') {
@@ -683,6 +686,20 @@ export class HUDController {
     } else {
       this.ibuAlertBadge.classList.add('hidden');
     }
+
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const pad = 16;
+    const bubbleW = Math.min(w - pad * 2, Math.max(120, this.ibuBubble.offsetWidth || 200));
+    const bubbleH = Math.max(48, this.ibuBubble.offsetHeight || 72);
+    const halfW = bubbleW * 0.5;
+    const topSafe = pad + bubbleH + 92;
+    const bottomSafe = h - 72;
+
+    const x = THREE.MathUtils.clamp((this.projVec.x * 0.5 + 0.5) * w, pad + halfW, Math.max(pad + halfW, w - pad - halfW));
+    const y = THREE.MathUtils.clamp((-this.projVec.y * 0.5 + 0.5) * h, topSafe, Math.max(topSafe, bottomSafe));
+    this.ibuBubble.style.left = `${x}px`;
+    this.ibuBubble.style.top = `${y}px`;
   }
 
   private clearInputs(): void {

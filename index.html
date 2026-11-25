@@ -34,48 +34,50 @@
 
       <!-- Main HUD (Safe Area aware) -->
       <div id="hud-layer" class="hud-layer">
-        <!-- Top Left: Objective Card -->
-        <div class="hud-card objective-card">
-          <div id="objective-chapter" class="card-kicker">KECOAKAZE / BAB 01</div>
-          <div id="objective-title" class="objective-title">01 / CURI CEMILAN   0/3</div>
-          <div id="objective-hint" class="objective-hint">
-            Dekati bahan sayur. Tahan AKSI (E/F) saat prompt muncul.
-          </div>
-          <div id="hiding-badge" class="hiding-badge hidden">SEMBUNYI</div>
-        </div>
-
-        <!-- Top Center: Terror Momentum & Stars -->
-        <div class="hud-card momentum-card">
-          <div class="momentum-header">
-            <span class="momentum-title">MOMENTUM TEROR</span>
-            <span id="momentum-pct" class="momentum-pct">0%</span>
-          </div>
-          <div class="momentum-stars">
-            <span id="star-1" class="star-icon" title="Bintang 1">★</span>
-            <span id="star-2" class="star-icon" title="Bintang 2">★</span>
-            <span id="star-3" class="star-icon" title="Bintang 3">★</span>
-          </div>
-          <div class="momentum-track">
-            <div id="momentum-fill" class="momentum-fill"></div>
-            <div class="threshold-mark" style="left: 30%"></div>
-            <div class="threshold-mark" style="left: 60%"></div>
-            <div class="threshold-mark" style="left: 90%"></div>
-          </div>
-        </div>
-
-        <!-- Top Right: Threat Card + Controls -->
-        <div class="top-right-group">
-          <div class="hud-card threat-card">
-            <div id="threat-status" class="threat-status">IBU SIBUK / JAGA JARAK</div>
-            <div class="detection-track">
-              <div id="detection-fill" class="detection-fill"></div>
+        <div class="hud-top-bar">
+          <!-- Top Left: Objective Card -->
+          <div class="hud-card objective-card">
+            <div id="objective-chapter" class="card-kicker">KECOAKAZE / BAB 01</div>
+            <div id="objective-title" class="objective-title">01 / CURI CEMILAN   0/3</div>
+            <div id="objective-hint" class="objective-hint">
+              Dekati bahan sayur. Tahan AKSI (E/F) saat prompt muncul.
             </div>
-            <div id="surface-status" class="surface-status">MERAYAP · LANTAI</div>
+            <div id="hiding-badge" class="hiding-badge hidden">SEMBUNYI</div>
           </div>
-          <div class="top-buttons">
-            <button id="btn-mute" class="icon-btn" title="Suara (M)">🔊</button>
-            <button id="btn-touch-toggle" class="icon-btn" title="Toggle Mode Touch / Desktop">📱</button>
-            <button id="btn-pause" class="icon-btn" title="Jeda (Esc / P)">⏸</button>
+
+          <!-- Top Center: Terror Momentum & Stars -->
+          <div class="hud-card momentum-card">
+            <div class="momentum-header">
+              <span class="momentum-title">MOMENTUM TEROR</span>
+              <span id="momentum-pct" class="momentum-pct">0%</span>
+            </div>
+            <div class="momentum-stars">
+              <span id="star-1" class="star-icon" title="Bintang 1">★</span>
+              <span id="star-2" class="star-icon" title="Bintang 2">★</span>
+              <span id="star-3" class="star-icon" title="Bintang 3">★</span>
+            </div>
+            <div class="momentum-track">
+              <div id="momentum-fill" class="momentum-fill"></div>
+              <div class="threshold-mark" style="left: 30%"></div>
+              <div class="threshold-mark" style="left: 60%"></div>
+              <div class="threshold-mark" style="left: 90%"></div>
+            </div>
+          </div>
+
+          <!-- Top Right: Threat Card + Controls -->
+          <div class="top-right-group">
+            <div class="hud-card threat-card">
+              <div id="threat-status" class="threat-status">IBU SIBUK / JAGA JARAK</div>
+              <div class="detection-track">
+                <div id="detection-fill" class="detection-fill"></div>
+              </div>
+              <div id="surface-status" class="surface-status">MERAYAP · LANTAI</div>
+            </div>
+            <div class="top-buttons">
+              <button id="btn-mute" class="icon-btn" title="Suara (M)">🔊</button>
+              <button id="btn-touch-toggle" class="icon-btn" title="Toggle Mode Touch / Desktop">📱</button>
+              <button id="btn-pause" class="icon-btn" title="Jeda (Esc / P)">⏸</button>
+            </div>
           </div>
         </div>
 

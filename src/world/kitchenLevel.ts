@@ -19,18 +19,22 @@ import {
   addBox,
   buildDispenser,
   buildEmberGayung,
+  buildJalusi,
   buildJamDinding,
   buildJendela,
   buildKalender,
   buildKomporGas,
   buildKulkas,
+  buildKursi,
+  buildKursiBakso,
+  buildLampuNeonPlafon,
   buildLampuPlafon,
   buildLemariGantung,
   buildMejaDapur,
   buildMejaMakan,
+  buildSapuPengki,
   buildTempatSampah,
   buildWastafel,
-  buildKursi,
   createKitchenMaterials,
 } from './kitchenProps';
 
@@ -59,16 +63,20 @@ export function buildKitchenLevel(scene: THREE.Scene): KitchenLevelData {
   root.name = 'Environment_Kitchen';
   scene.add(root);
 
-  // Sky & Fog matching KecoakazeStyle
-  scene.background = new THREE.Color(Palette.SkyHorizon);
-  scene.fog = new THREE.Fog(Palette.SkyHorizon, 48, 125);
+  // Full enclosed interior atmosphere (zero exposed blue sky)
+  scene.background = new THREE.Color(0x282520);
+  scene.fog = new THREE.Fog(0x282520, 48, 110);
 
-  // Lighting: bright, cozy Indonesian tropical kitchen (attached to root so stage switching toggles lights)
-  const hemi = new THREE.HemisphereLight(0xf6fbf7, 0x8d877a, 1.05);
+  // Indoor Lighting driven by main ceiling neon/LED tube & dining pendant
+  const hemi = new THREE.HemisphereLight(0xfaf0df, 0x6f675b, 0.96);
   root.add(hemi);
 
-  const dirLight = new THREE.DirectionalLight(0xfff4de, 1.45);
-  dirLight.position.set(16, 26, -14);
+  const neonLight = new THREE.PointLight(0xfff5df, 1.55, 52, 1.05);
+  neonLight.position.set(0, (ROOM_H - 0.25) * S, 0.2 * S);
+  root.add(neonLight);
+
+  const dirLight = new THREE.DirectionalLight(0xfff3db, 0.92);
+  dirLight.position.set(12, 20, -10);
   dirLight.castShadow = true;
   dirLight.shadow.mapSize.set(1024, 1024);
   dirLight.shadow.camera.near = 2;
@@ -82,102 +90,163 @@ export function buildKitchenLevel(scene: THREE.Scene): KitchenLevelData {
   root.add(dirLight);
 
   // Warm bulb point light over dining table
-  const diningLight = new THREE.PointLight(0xffe1a6, 0.9, 32, 1.2);
-  diningLight.position.set(1.6 * S, (ROOM_H - 0.45) * S, -0.4 * S);
+  const diningLight = new THREE.PointLight(0xffde9e, 1.0, 32, 1.15);
+  diningLight.position.set(1.6 * S, (ROOM_H - 0.55) * S, -0.4 * S);
   root.add(diningLight);
 
   const ctx: PropBuildContext = { walkables: [], obstacles: [] };
   const mats = createKitchenMaterials();
 
-  // 1. Room Shell (8m x 6.5m x 2.7m)
+  // 1. Full Enclosed Room Shell (8m x 6.5m x 3.2m)
   const room = new THREE.Group();
   room.name = 'Room_Shell';
   root.add(room);
 
+  // 40x40 cm ceramic tiles with crisp visible grout lines (2x2 grid per 0.8m UV tile)
   const floorTex = createTileTexture(
     2,
-    '#E6DCC6',
-    '#D8CDB4',
-    '#A79D8C',
+    '#EAE0CC',
+    '#DED3BA',
+    '#887C6B',
     true,
     (ROOM_W + 0.4) / 0.8,
-    (ROOM_D + 0.4) / 0.8
+    (ROOM_D + 0.4) / 0.8,
+    5
   );
-  const wallTileTex = createTileTexture(
+  const wallTileBackTex = createTileTexture(
     4,
     '#CFE6E0',
-    '#CFE6E0',
-    '#8FB0AA',
+    '#C7DFD9',
+    '#82A39D',
     false,
     ROOM_W / 0.8,
-    1.3 / 0.8
+    1.35 / 0.8,
+    4
+  );
+  const wallTileSideTex = createTileTexture(
+    4,
+    '#CFE6E0',
+    '#C7DFD9',
+    '#82A39D',
+    false,
+    ROOM_D / 0.8,
+    1.35 / 0.8,
+    4
   );
 
   const floorMat = createToonMaterial(0xffffff, { map: floorTex });
-  const wallTileMat = createToonMaterial(0xffffff, { map: wallTileTex });
-  const wallPaintMat = createToonMaterial(0xe7ddc4);
-  const wallSideMat = createToonMaterial(0xd5e2d0);
+  const wallTileBackMat = createToonMaterial(0xffffff, { map: wallTileBackTex });
+  const wallTileSideMat = createToonMaterial(0xffffff, { map: wallTileSideTex });
+  const wallCreamMat = createToonMaterial(0xebe1cb);
+  const wallSageMat = createToonMaterial(0xd4e2cf);
   const ceilingMat = createToonMaterial(Palette.White);
 
   const halfW = ROOM_W * 0.5;
   const halfD = ROOM_D * 0.5;
-
   const shellOpts = { castShadow: false, receiveShadow: true, edges: false };
+
+  // Ceramic Floor 40x40 cm
   addBox(room, 'Lantai_Keramik', [0, -0.05, 0], [ROOM_W + 0.4, 0.1, ROOM_D + 0.4], floorMat, ctx, shellOpts);
+
+  // Back Wall (+Z): lower ceramic backsplash (0..1.35m) + warm cream paint (1.35..3.2m)
   addBox(
     room,
     'Dinding_Belakang_Keramik',
-    [0, 0.65, halfD + WALL_T * 0.5],
-    [ROOM_W, 1.3, WALL_T],
-    wallTileMat,
+    [0, 0.675, halfD + WALL_T * 0.5],
+    [ROOM_W, 1.35, WALL_T],
+    wallTileBackMat,
     ctx,
     shellOpts
   );
   addBox(
     room,
     'Dinding_Belakang_Cat',
-    [0, 1.3 + (ROOM_H - 1.3) * 0.5, halfD + WALL_T * 0.5],
-    [ROOM_W, ROOM_H - 1.3, WALL_T],
-    wallPaintMat,
+    [0, 1.35 + (ROOM_H - 1.35) * 0.5, halfD + WALL_T * 0.5],
+    [ROOM_W, ROOM_H - 1.35, WALL_T],
+    wallCreamMat,
+    ctx,
+    shellOpts
+  );
+
+  // Left Wall (-X): lower ceramic backsplash (0..1.35m) + sage green wall paint (1.35..3.2m)
+  addBox(
+    room,
+    'Dinding_Kiri_Keramik',
+    [-halfW - WALL_T * 0.5, 0.675, 0],
+    [WALL_T, 1.35, ROOM_D + WALL_T * 2],
+    wallTileSideMat,
     ctx,
     shellOpts
   );
   addBox(
     room,
-    'Dinding_Kiri',
-    [-halfW - WALL_T * 0.5, ROOM_H * 0.5, 0],
-    [WALL_T, ROOM_H, ROOM_D + WALL_T * 2],
-    wallSideMat,
+    'Dinding_Kiri_Cat',
+    [-halfW - WALL_T * 0.5, 1.35 + (ROOM_H - 1.35) * 0.5, 0],
+    [WALL_T, ROOM_H - 1.35, ROOM_D + WALL_T * 2],
+    wallSageMat,
     ctx,
     shellOpts
   );
+
+  // Right Wall (+X): full 3.2m sage green wall + ceramic baseboard plinth
   addBox(
     room,
     'Dinding_Kanan',
     [halfW + WALL_T * 0.5, ROOM_H * 0.5, 0],
     [WALL_T, ROOM_H, ROOM_D + WALL_T * 2],
-    wallSideMat,
+    wallSageMat,
     ctx,
     shellOpts
   );
   addBox(
     room,
-    'Dinding_Depan_Rendah',
-    [0, 0.45, -halfD - WALL_T * 0.5],
-    [ROOM_W, 0.9, WALL_T],
-    wallPaintMat,
+    'Plint_Kanan',
+    [halfW - 0.006, 0.06, 0],
+    [0.012, 0.12, ROOM_D],
+    wallTileSideMat,
+    ctx,
+    { collider: false, castShadow: false, edges: false }
+  );
+
+  // Front Wall (-Z): FULL 3.2m enclosed wall (completely removes exposed blue sky!)
+  addBox(
+    room,
+    'Dinding_Depan_Penuh',
+    [0, ROOM_H * 0.5, -halfD - WALL_T * 0.5],
+    [ROOM_W, ROOM_H, WALL_T],
+    wallCreamMat,
     ctx,
     shellOpts
   );
   addBox(
     room,
-    'Dinding_Depan_Ambalan',
-    [0, 0.92, -halfD - WALL_T * 0.5],
-    [ROOM_W + 0.1, 0.04, 0.24],
-    mats.woodDark,
+    'Plint_Depan',
+    [0, 0.06, -halfD + 0.006],
+    [ROOM_W, 0.12, 0.012],
+    wallTileBackMat,
     ctx,
-    shellOpts
+    { collider: false, castShadow: false, edges: false }
   );
+
+  // Enclosed Kitchen Door on Front Wall (right side x = 2.4m) with narrow 0.06m bottom hiding gap
+  const doorX = 2.4;
+  const doorZ = -halfD + 0.035;
+  addBox(room, 'Pintu_Kusen_L', [doorX - 0.48, 1.08, doorZ], [0.07, 2.16, 0.08], mats.woodDark, ctx);
+  addBox(room, 'Pintu_Kusen_R', [doorX + 0.48, 1.08, doorZ], [0.07, 2.16, 0.08], mats.woodDark, ctx);
+  addBox(room, 'Pintu_Kusen_Atas', [doorX, 2.125, doorZ], [1.03, 0.07, 0.08], mats.woodDark, ctx);
+  // Door leaf sits from y = 0.06m to 2.09m leaving a realistic 6cm bottom cockroach crawl gap
+  addBox(room, 'Pintu_Daun', [doorX, 1.075, doorZ], [0.89, 2.03, 0.05], mats.wood, ctx);
+  addBox(room, 'Pintu_Panel_Atas', [doorX, 1.5, doorZ - 0.028], [0.64, 0.68, 0.01], mats.woodDark, ctx, {
+    collider: false,
+  });
+  addBox(room, 'Pintu_Panel_Bawah', [doorX, 0.58, doorZ - 0.028], [0.64, 0.68, 0.01], mats.woodDark, ctx, {
+    collider: false,
+  });
+  addBox(room, 'Pintu_Gagang', [doorX - 0.34, 0.98, doorZ - 0.045], [0.11, 0.026, 0.04], mats.brass, ctx, {
+    collider: false,
+  });
+
+  // Full 3.2m Ceiling & Perimeter Crown Trim
   addBox(
     room,
     'Plafon',
@@ -187,15 +256,22 @@ export function buildKitchenLevel(scene: THREE.Scene): KitchenLevelData {
     ctx,
     { castShadow: false, receiveShadow: false, edges: false, isObstacle: false }
   );
-  addBox(
-    room,
-    'List_Plafon_Belakang',
-    [0, ROOM_H - 0.04, halfD - 0.03],
-    [ROOM_W, 0.08, 0.06],
-    mats.woodDark,
-    ctx,
-    { collider: false, castShadow: false }
-  );
+  addBox(room, 'List_Plafon_Belakang', [0, ROOM_H - 0.04, halfD - 0.03], [ROOM_W, 0.08, 0.06], mats.woodDark, ctx, {
+    collider: false,
+    castShadow: false,
+  });
+  addBox(room, 'List_Plafon_Depan', [0, ROOM_H - 0.04, -halfD + 0.03], [ROOM_W, 0.08, 0.06], mats.woodDark, ctx, {
+    collider: false,
+    castShadow: false,
+  });
+  addBox(room, 'List_Plafon_Kiri', [-halfW + 0.03, ROOM_H - 0.04, 0], [0.06, 0.08, ROOM_D], mats.woodDark, ctx, {
+    collider: false,
+    castShadow: false,
+  });
+  addBox(room, 'List_Plafon_Kanan', [halfW - 0.03, ROOM_H - 0.04, 0], [0.06, 0.08, ROOM_D], mats.woodDark, ctx, {
+    collider: false,
+    castShadow: false,
+  });
 
   // 2. Place Props
   const propRoot = new THREE.Group();
@@ -214,33 +290,33 @@ export function buildKitchenLevel(scene: THREE.Scene): KitchenLevelData {
   place(buildWastafel(mats, ctx), [-2.45, 0, counterZ]);
   const goKompor = place(buildKomporGas(mats, ctx), [-1.2, 0, counterZ]);
   const goMejaDapur = place(buildMejaDapur(mats, ctx), [0.05, 0, counterZ]);
-  place(buildLemariGantung(mats, ctx), [-0.58, 1.55, ROOM_D * 0.5 - 0.16]);
-  place(buildJendela(mats, ctx), [-2.45, 1.62, ROOM_D * 0.5 - 0.04]);
-  place(buildJamDinding(mats, ctx), [1.4, 2.1, ROOM_D * 0.5 - 0.02]);
-  place(buildKalender(mats, ctx), [2.2, 1.55, ROOM_D * 0.5 - 0.01]);
+  place(buildLemariGantung(mats, ctx), [-0.58, 1.72, ROOM_D * 0.5 - 0.16]);
+  place(buildJendela(mats, ctx), [-2.45, 1.86, ROOM_D * 0.5 - 0.04]);
+  place(buildJalusi(mats, ctx, 1.0), [-2.45, 2.78, ROOM_D * 0.5 - 0.02]);
+  place(buildJalusi(mats, ctx, 0.88), [doorX, 2.52, -halfD + 0.02], 180);
+  place(buildJamDinding(mats, ctx), [1.4, 2.25, ROOM_D * 0.5 - 0.02]);
+  place(buildKalender(mats, ctx), [2.2, 1.65, ROOM_D * 0.5 - 0.01]);
   place(buildDispenser(mats, ctx), [3.6, 0, ROOM_D * 0.5 - 0.3]);
 
+  // Dining table + integral Indonesian plastic warung chairs + round bakso stool
   const goMejaMakan = place(buildMejaMakan(mats, ctx), [1.6, 0, -0.4]);
-  place(buildKursi(mats, mats.chairRed, ctx), [1.3, 0, -1.08], 180);
-  place(buildKursi(mats, mats.chairBlue, ctx), [1.95, 0, 0.28], 10);
+  place(buildKursi(mats, mats.chairRed, ctx), [1.28, 0, -1.04], 180);
+  place(buildKursi(mats, mats.chairBlue, ctx), [1.92, 0, 0.24], 10);
+  place(buildKursiBakso(mats, mats.chairMint, ctx), [0.52, 0, -0.42]);
+
+  // Ceiling lighting fixtures
+  place(buildLampuNeonPlafon(mats, ctx), [0, ROOM_H, 0.2]);
   place(buildLampuPlafon(mats, ctx), [1.6, ROOM_H, -0.4]);
 
-  place(buildTempatSampah(mats, ctx), [-3.6, 0, -2.75]);
-  place(buildEmberGayung(mats, ctx), [-3.55, 0, -1.95], 25);
-
-  // Sapu Lidi bersandar di pojok tempat sapu (-3.6, 0, -2.75)
-  const sapuIdle = new THREE.Group();
-  sapuIdle.position.set(-3.75 * S, 0, -2.95 * S);
-  sapuIdle.rotation.z = -0.12;
-  addBox(sapuIdle, 'Sapu_Stand_Handle', [0, 0.72, 0], [0.03, 1.4, 0.03], mats.woodDark, ctx, { collider: false });
-  addBox(sapuIdle, 'Sapu_Stand_Bristle', [0, 0.14, 0], [0.22, 0.28, 0.06], createToonMaterial(Palette.Rattan), ctx, { collider: false });
-  propRoot.add(sapuIdle);
+  place(buildTempatSampah(mats, ctx), [-3.6, 0, -2.65]);
+  place(buildEmberGayung(mats, ctx), [-3.55, 0, -1.88], 25);
+  place(buildSapuPengki(mats, ctx), [-3.75, 0, -3.02], 18);
 
   // 3. Interactive Props (3 Keisengan Berurutan)
   const interactiveProps = createInteractiveProps(root, goMejaDapur, goKompor, goMejaMakan);
 
-  // 4. Hiding Spots (5 spots: 3 Safe, 2 Risky)
-  const hidingSpots = createHidingSpots(root, counterZ);
+  // 4. Hiding Spots (6 spots: 4 Safe, 2 Risky)
+  const hidingSpots = createHidingSpots(root, counterZ, doorX, halfD);
 
   // 5. Environmental Hazards
   const soapyCenter = new THREE.Vector3(-2.45 * S, 0.05, (counterZ - 0.45) * S);
@@ -250,15 +326,14 @@ export function buildKitchenLevel(scene: THREE.Scene): KitchenLevelData {
     max: new THREE.Vector3(soapyCenter.x + 0.38 * S, 0.65, soapyCenter.z + 0.25 * S),
   };
 
-  const stovePos = new THREE.Vector3(-1.2 * S, 1.4 * S, (counterZ + 0.04) * S);
+  const stovePos = new THREE.Vector3(-1.2 * S, 1.45 * S, (counterZ + 0.04) * S);
   const updraftZone: AABBZone = {
     name: 'ThermalUpdraft',
     min: new THREE.Vector3(stovePos.x - 0.45 * S, 0.95 * S, stovePos.z - 0.3 * S),
-    max: new THREE.Vector3(stovePos.x + 0.45 * S, 2.2 * S, stovePos.z + 0.3 * S),
+    max: new THREE.Vector3(stovePos.x + 0.45 * S, 2.4 * S, stovePos.z + 0.3 * S),
   };
-  const updraftParticles = createUpdraftParticles(root, new THREE.Vector3(-1.2 * S, 1.0 * S, (counterZ + 0.04) * S));
+  const updraftParticles = createUpdraftParticles(root, new THREE.Vector3(-1.2 * S, 1.05 * S, (counterZ + 0.04) * S));
 
-  // Ensure world matrices are fresh for raycasting
   scene.updateMatrixWorld(true);
 
   return {
@@ -306,9 +381,9 @@ function createInteractiveProps(
   };
 
   // Prop 1: Bahan Sayur di Meja Dapur
-  const pos1 = new THREE.Vector3(0.05 * S, 0.88 * S, (ROOM_D * 0.5 - 0.31 - 0.05) * S);
+  const pos1 = new THREE.Vector3(0.11 * S, 0.88 * S, (ROOM_D * 0.5 - 0.31 - 0.05) * S);
   const ruined1 = new THREE.Mesh(
-    new THREE.BoxGeometry(0.35 * S, 0.04 * S, 0.22 * S),
+    new THREE.BoxGeometry(0.34 * S, 0.03 * S, 0.22 * S),
     createToonMaterial(0x5a3e28)
   );
   ruined1.position.copy(pos1);
@@ -317,23 +392,23 @@ function createInteractiveProps(
   const talenan = goMejaDapur.getObjectByName('Talenan_Group');
 
   // Prop 2: Panci Sup di Kompor
-  const pos2 = new THREE.Vector3((-1.2 + 0.18) * S, 1.01 * S, (ROOM_D * 0.5 - 0.31 + 0.04) * S);
+  const pos2 = new THREE.Vector3((-1.2 + 0.18) * S, 1.07 * S, (ROOM_D * 0.5 - 0.31 + 0.04) * S);
   const ruined2 = new THREE.Mesh(
     new THREE.CylinderGeometry(0.14 * S, 0.14 * S, 0.025 * S, 16),
     createToonMaterial(0x3e5b26)
   );
-  ruined2.position.copy(pos2).add(new THREE.Vector3(0, 0.03 * S, 0));
+  ruined2.position.copy(pos2).add(new THREE.Vector3(0, -0.04 * S, 0));
   ruined2.visible = false;
   root.add(ruined2);
   const wajan = goKompor.getObjectByName('Wajan');
 
   // Prop 3: Sayur Tumis di Meja Makan
-  const pos3 = new THREE.Vector3((1.6 + 0.28) * S, 0.76 * S, (-0.4 + 0.02) * S);
+  const pos3 = new THREE.Vector3((1.6 + 0.28) * S, 0.77 * S, (-0.4 + 0.02) * S);
   const ruined3 = new THREE.Mesh(
     new THREE.CylinderGeometry(0.19 * S, 0.19 * S, 0.03 * S, 16),
     createToonMaterial(0x442211)
   );
-  ruined3.position.copy(pos3).add(new THREE.Vector3(0, 0.03 * S, 0));
+  ruined3.position.copy(pos3).add(new THREE.Vector3(0, 0.01 * S, 0));
   ruined3.visible = false;
   root.add(ruined3);
   const tudung = goMejaMakan.getObjectByName('TudungSaji_Group');
@@ -384,7 +459,12 @@ function createInteractiveProps(
   ];
 }
 
-function createHidingSpots(root: THREE.Group, counterZ: number): HidingSpot[] {
+function createHidingSpots(
+  root: THREE.Group,
+  counterZ: number,
+  doorX: number,
+  halfD: number
+): HidingSpot[] {
   const spots: Array<{
     id: string;
     name: string;
@@ -413,9 +493,17 @@ function createHidingSpots(root: THREE.Group, counterZ: number): HidingSpot[] {
       id: 'atas_kulkas',
       name: 'Atas Kulkas',
       safety: 'Safe',
-      pos: new THREE.Vector3(-3.5 * S, 1.9 * S, (counterZ - 0.02) * S),
+      pos: new THREE.Vector3(-3.5 * S, 1.94 * S, (counterZ - 0.02) * S),
       half: new THREE.Vector3(0.5 * S, 0.25 * S, 0.45 * S),
-      offset: new THREE.Vector3(0, -1.9 * S, -1.2 * S),
+      offset: new THREE.Vector3(0, -1.94 * S, -1.2 * S),
+    },
+    {
+      id: 'celah_bawah_pintu',
+      name: 'Celah Bawah Pintu',
+      safety: 'Safe',
+      pos: new THREE.Vector3(doorX * S, 0.1 * S, (-halfD + 0.16) * S),
+      half: new THREE.Vector3(0.45 * S, 0.16 * S, 0.28 * S),
+      offset: new THREE.Vector3(0, 0, 1.15 * S),
     },
     {
       id: 'belakang_dispenser',
