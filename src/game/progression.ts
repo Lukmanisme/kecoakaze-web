@@ -73,7 +73,6 @@ export class ProgressionManager {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       if (!raw) return defaultSave();
       const parsed = JSON.parse(raw) as Partial<PlayerSaveData>;
-      const base = defaultSave();
       return {
         dna: typeof parsed.dna === 'number' && parsed.dna >= 0 ? Math.floor(parsed.dna) : 0,
         bestStars: typeof parsed.bestStars === 'number' ? Math.min(3, Math.max(0, parsed.bestStars)) : 0,
